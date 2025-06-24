@@ -119,27 +119,34 @@ append_to_history(df_traf)  # guarda para entrenar ML más adelante
 # ────────────────────────────────────────────────────────────────────────────
 # 6 · Predicción de congestión
 # ────────────────────────────────────────────────────────────────────────────
-estado_actual = int(df_traf["estado"].mode()[0]) if not df_traf.empty else 0
-
 prob_markov = prob_ml = None
 acc = roc = None
 
-if metodo == "Cadena de Markov":
-    with st.spinner("Calculando con cadena de Markov…"):
-        prob_markov = predict_congestion(df_traf)
+# Solo intentamos predecir si HAY datos de tráfico
+if not df_traf.empty:
+    estado_actual = int(df_traf["estado"].mode()[0])
 
-else:  # Regresión logística
-    with st.spinner("Calculando con regresión logística…"):
-        try:
-            modelo, acc, roc = get_logreg_model()
-            ahora = datetime.now(timezone.utc)
-            x_actual = pd.DataFrame(
-                {"estado": [estado_actual], "hora": [ahora.hour], "diasem": [ahora.weekday()]}
-            )
-            prob_ml = float(modelo.predict_proba(x_actual)[0, 1])
-        except ValueError as e:
-            st.error(f"⚠️ {e}")
-            prob_ml = None
+    if metodo == "Cadena de Markov":
+        with st.spinner("Calculando con cadena de Markov…"):
+            prob_markov = predict_congestion(df_traf)
+
+    else:  # Regresión logística
+        with st.spinner("Calculando con regresión logística…"):
+            try:
+                modelo, acc, roc = get_logreg_model()
+                ahora = datetime.now(timezone.utc)
+                x_actual = pd.DataFrame(
+                    {
+                        "estado": [estado_actual],
+                        "hora":   [ahora.hour],
+                        "diasem": [ahora.weekday()],
+                    }
+                )
+                prob_ml = float(modelo.predict_proba(x_actual)[0, 1])
+            except ValueError as e:
+                st.warning(f"⚠️ {e}")
+else:
+    st.info("⏳ Datos de tráfico no disponibles; sin predicción en este momento.")
 
 
 # ────────────────────────────────────────────────────────────────────────────
