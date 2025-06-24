@@ -66,17 +66,18 @@ def load_traffic():
 
 
 # ─────────────────────────────────────────────────────────────────
-# 2 · Barra lateral: filtros y leyenda
+# 2 · Sidebar: filtros y recarga
 # ─────────────────────────────────────────────────────────────────
 st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
-if st.sidebar.button("🔄 Actualizar datos"):
+
+if st.sidebar.button("🔄  Actualizar datos"):
     load_traffic.clear()
     load_valenbisi.clear()
     st.experimental_rerun()
 
-st.sidebar.subheader("Estados de tráfico (colores en mapa)")
+st.sidebar.subheader("Estados de tráfico")
 st.sidebar.markdown(
     """
     | Estado | Color      |
@@ -103,28 +104,31 @@ if show_bici and df_bici.empty:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 4 · Asignar color dinámico según estado de tráfico
+# 4 · Colorear según estado y preparar layer de bicis
 # ─────────────────────────────────────────────────────────────────
+# Mapa de colores RGBA para tráfico
 color_map = {
     0: [0, 255,   0,  80],  # verde
     1: [255,165,   0,  80],  # naranja
     2: [255,  0,   0,  80],  # rojo
     3: [0,    0,   0,  80],  # negro
 }
-# aplicamos un map seguro que retorna un RGBA por defecto si falta
-df_traf["fill_color"] = df_traf["estado"].apply(
-    lambda s: color_map.get(s, [200,200,200,80])
-)
+# Aplicamos
+df_traf["fill_color"] = df_traf["estado"].apply(lambda s: color_map.get(s, [200,200,200,80]))
+
+# Bici siempre azul
+df_bici["fill_color"] = [[0,140,255,80]] * len(df_bici)
 
 
 # ─────────────────────────────────────────────────────────────────
-# 5 · Definición de capas
+# 5 · Construcción de capas
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
 if show_traf and not df_traf.empty and {"latitud","longitud","fill_color","denominacion"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
+        id="trafico",
         data=df_traf,
         get_position="[longitud, latitud]",
         get_fill_color="fill_color",
@@ -135,31 +139,30 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color","denom
 if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direccion"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
+        id="balenbisi",
         data=df_bici,
         get_position="[lon, lat]",
-        get_fill_color="[0, 140, 255, 80]",
+        get_fill_color="fill_color",
         get_radius=30,
         pickable=True,
     ))
 
 
 # ─────────────────────────────────────────────────────────────────
-# 6 · Tooltip y despliegue
+# 6 · Tooltip & despliegue
 # ─────────────────────────────────────────────────────────────────
-if layers:
-    tooltip = {
-        "html": (
-            "<b>Tráfico:</b> {denominacion}<br/>"
-            "<b>Bicis disp.:</b> {Bicis_disponibles}"
-        ),
-        "style": {"backgroundColor": "white", "color": "black"}
-    }
-    st.pydeck_chart(
-        pdk.Deck(
-            initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
-            layers=layers,
-            tooltip=tooltip
-        )
-    )
-else:
-    st.info("No hay capas para mostrar en el mapa.")
+# Usamos un único tooltip que muestra solo las keys presentes
+tooltip = {
+    "html": """
+      {denominacion ? `<b>🚦 Tráfico:</b> ${denominacion}<br/>` : ``}
+      {Bicis_disponibles ? `<b>🚲 Bicis disp.:</b> ${Bicis_disponibles}<br/>` : ``}
+      {direccion ? `<b>📍 Dirección:</b> ${direccion}` : ``}
+    """,
+    "style": {"backgroundColor": "white", "color": "black"}
+}
+
+st.pydeck_chart(pdk.Deck(
+    initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
+    layers=layers,
+    tooltip=tooltip
+))
