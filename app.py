@@ -115,7 +115,7 @@ if show_traf and not df_traf.empty and {"latitud", "longitud"}.issubset(df_traf.
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat", "lon"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
@@ -126,10 +126,13 @@ if show_bici and not df_bici.empty and {"lat", "lon"}.issubset(df_bici.columns):
     ))
 
 if layers:
+    tooltip = {
+        "text": "{denominacion}\n🅱 Bicis disponibles: {Bicis_disponibles}"
+    }
     st.pydeck_chart(pdk.Deck(
         initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
         layers=layers,
-        tooltip={"text": "{denominacion}"},
+        tooltip=tooltip
     ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
