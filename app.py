@@ -102,20 +102,20 @@ st.sidebar.header("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 
---- Recargar datos manualmente -----------------------------------------
+# --- Recargar datos manualmente -----------------------------------------
 if st.sidebar.button("🔄  Actualizar datos"):
     load_traffic.clear()       # vacía la caché
     load_valenbisi.clear()
     st.experimental_rerun()    # recarga la página completa
 
---- Filtro por vía / tramo ---------------------------------------------
+# --- Filtro por vía / tramo ---------------------------------------------
 vias = sorted(df_traf["denominacion"].dropna().unique())
 vias_sel = st.sidebar.multiselect(
     "Filtrar por vía", vias, help="Selecciona una o varias vías")
 if vias_sel:
     df_traf = df_traf[df_traf["denominacion"].isin(vias_sel)]
 
---- Filtro mínimo de bicis ---------------------------------------------
+# --- Filtro mínimo de bicis ---------------------------------------------
 if show_bici and not df_bici.empty and "Bicis_disponibles" in df_bici:
     max_bicis = int(df_bici["Bicis_disponibles"].max())
     min_bicis = st.sidebar.slider(
