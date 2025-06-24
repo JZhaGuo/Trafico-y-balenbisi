@@ -27,10 +27,7 @@ def load_valenbisi():
             if "slots_disponibles" in f:
                 f["Bicis_disponibles"] = f.pop("slots_disponibles")
             # dirección
-            if "address" in f:
-                f["direccion"] = f["address"]
-            else:
-                f["direccion"] = "Desconocida"
+            f["direccion"] = f.get("address", "Desconocida")
             # geo_point_2d → lat, lon
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
@@ -55,6 +52,12 @@ def load_traffic():
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
+            # asegúrate de que 'estado' es int
+            if "estado" in f:
+                try:
+                    f["estado"] = int(f["estado"])
+                except:
+                    pass
             # geo_point_2d → latitud, longitud
             if isinstance(f.get("geo_point_2d"), list):
                 f["latitud"], f["longitud"] = f["geo_point_2d"]
@@ -63,13 +66,6 @@ def load_traffic():
                 f["latitud"] = f["latitude"]
             if "longitude" in f and "longitud" not in f:
                 f["longitud"] = f["longitude"]
-            # estado
-            # si viene como texto, convertir a int
-            if "estado" in f:
-                try:
-                    f["estado"] = int(f["estado"])
-                except:
-                    pass
             rows.append(f)
         return pd.DataFrame(rows)
     except Exception as e:
@@ -128,11 +124,11 @@ if "estado" in df_traf.columns:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 5 · Mapa
+# 5 · Definir capas
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
@@ -142,7 +138,7 @@ if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.iss
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles", "direccion"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direccion"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
@@ -152,24 +148,24 @@ if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles", "dire
         pickable=True,
     ))
 
+
 # ─────────────────────────────────────────────────────────────────
 # 6 · Tooltip y despliegue
 # ─────────────────────────────────────────────────────────────────
 if layers:
     tooltip = {
         "html": (
-            "<b>Tráfico:</b> {denominacion}<br/>"
-            if "{denominacion}" in df_traf.columns else ""
-        )
-        + "<b>Dirección:</b> {direccion}<br/>"
-        + "<b>Bicis disponibles:</b> {Bicis_disponibles}"
+            "<b>🚦 Tráfico:</b> {denominacion}<br/>"
+            "<b>📍 Balenbisi:</b> {direccion}<br/>"
+            "<b>🚲 Bicis disp.:</b> {Bicis_disponibles}"
+        ),
+        "style": {"backgroundColor": "white", "color": "black"}
     }
-    st.pydeck_chart(
-        pdk.Deck(
-            initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
-            layers=layers,
-            tooltip=tooltip
-        )
-    )
+
+    st.pydeck_chart(pdk.Deck(
+        initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
+        layers=layers,
+        tooltip=tooltip
+    ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
