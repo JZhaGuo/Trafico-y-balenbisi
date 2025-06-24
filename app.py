@@ -129,7 +129,7 @@ if layers:
     st.pydeck_chart(pdk.Deck(
         initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
         layers=layers,
-        tooltip={"text": "{Bicis_disponibles}"},
+        tooltip={"text": {Bicis_disponibles}},
     ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
