@@ -106,7 +106,7 @@ show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 if st.sidebar.button("🔄  Actualizar datos"):
     load_traffic.clear()       # vacía la caché
     load_valenbisi.clear()
-    st.experimental_rerun()    # recarga la página completa
+    st.rerun()    # recarga la página completa
 
 # --- Filtro por vía / tramo ---------------------------------------------
 vias = sorted(df_traf["denominacion"].dropna().unique())
