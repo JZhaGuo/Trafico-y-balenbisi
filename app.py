@@ -124,10 +124,11 @@ if "estado" in df_traf.columns:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 5 · Definir capas
+# 5 · Definir capas y tooltip
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
+# Capa de tráfico, coloreada según estado
 if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -138,6 +139,7 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         pickable=True,
     ))
 
+# Capa de Valenbisi
 if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direccion"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -147,6 +149,28 @@ if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direcci
         get_radius=30,
         pickable=True,
     ))
+
+# ─────────────────────────────────────────────────────────────────
+# 6 · Tooltip y despliegue
+# ─────────────────────────────────────────────────────────────────
+if layers:
+    tooltip = {
+        "html": (
+            "<b>🚦 Tráfico:</b> {denominacion}<br/>"
+            "<b>🚲 Bicis disponibles:</b> {Bicis_disponibles}"
+        ),
+        "style": {"backgroundColor": "white", "color": "black"}
+    }
+
+    st.pydeck_chart(
+        pdk.Deck(
+            initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
+            layers=layers,
+            tooltip=tooltip
+        )
+    )
+else:
+    st.info("No hay capas para mostrar en el mapa.")
 
 
 # ─────────────────────────────────────────────────────────────────
