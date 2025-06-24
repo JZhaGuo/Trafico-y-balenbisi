@@ -15,7 +15,7 @@ def find_col(df, keywords):
     return None
 
 # ─── Cargar datos de Valenbisi ────────────────────────────────────────────
-@st.cache(allow_output_mutation=True, ttl=180)
++@st.cache_data(ttl=180)
 def load_valenbisi():
     url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
     params = {"dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad", "rows": 500}
@@ -61,7 +61,7 @@ def load_valenbisi():
     return df
 
 # ─── Cargar datos de tráfico ─────────────────────────────────────────────
-@st.cache(allow_output_mutation=True, ttl=180)
++@st.cache_data(ttl=180)
 def load_traffic():
     url = "https://valencia.opendatasoft.com/api/explore/v2.1/catalog/" \
           "datasets/estat-transit-temps-real-estado-trafico-tiempo-real/records"
