@@ -1,3 +1,5 @@
+De este codigo, añademe en {denominacion} la cantidad de bicis disponibles:
+
 import pandas as pd
 import requests
 import pydeck as pdk
@@ -23,11 +25,9 @@ def load_valenbisi():
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
-            # slots_disponibles → Bicis_disponibles
-            if "slots_disponibles" in f:
+            # Renombrar available → Bicis_disponibles si hace falta
+            if "bicis_disponibles" not in f and "slots_disponibles" in f:
                 f["Bicis_disponibles"] = f.pop("slots_disponibles")
-            # dirección
-            f["direccion"] = f.get("address", "Desconocida")
             # geo_point_2d → lat, lon
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
@@ -52,12 +52,6 @@ def load_traffic():
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
-            # asegúrate de que 'estado' es int
-            if "estado" in f:
-                try:
-                    f["estado"] = int(f["estado"])
-                except:
-                    pass
             # geo_point_2d → latitud, longitud
             if isinstance(f.get("geo_point_2d"), list):
                 f["latitud"], f["longitud"] = f["geo_point_2d"]
@@ -97,7 +91,6 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-
 # ─────────────────────────────────────────────────────────────────
 # 3 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
@@ -109,38 +102,22 @@ if df_traf.empty:
 if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
-
 # ─────────────────────────────────────────────────────────────────
-# 4 · Asignar color dinámico según estado de tráfico
-# ─────────────────────────────────────────────────────────────────
-color_map = {
-    0: [0, 255,   0,  80],  # verde
-    1: [255,165,   0,  80],  # naranja
-    2: [255,  0,   0,  80],  # rojo
-    3: [0,    0,   0,  80],  # negro
-}
-if "estado" in df_traf.columns:
-    df_traf["fill_color"] = df_traf["estado"].map(color_map)
-
-
-# ─────────────────────────────────────────────────────────────────
-# 5 · Definir capas y tooltip
+# 4 · Mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-# Capa de tráfico, coloreada según estado
-if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud", "longitud"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
         get_position="[longitud, latitud]",
-        get_fill_color="fill_color",
+        get_fill_color="[255, 0, 0, 80]",
         get_radius=40,
         pickable=True,
     ))
 
-# Capa de Valenbisi
-if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direccion"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat", "lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
@@ -150,46 +127,11 @@ if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direcci
         pickable=True,
     ))
 
-# ─────────────────────────────────────────────────────────────────
-# 6 · Tooltip y despliegue
-# ─────────────────────────────────────────────────────────────────
 if layers:
-    tooltip = {
-        "html": (
-            "<b>🚦 Tráfico:</b> {denominacion}<br/>"
-            "<b>🚲 Bicis disponibles:</b> {Bicis_disponibles}"
-        ),
-        "style": {"backgroundColor": "white", "color": "black"}
-    }
-
-    st.pydeck_chart(
-        pdk.Deck(
-            initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
-            layers=layers,
-            tooltip=tooltip
-        )
-    )
-else:
-    st.info("No hay capas para mostrar en el mapa.")
-
-
-# ─────────────────────────────────────────────────────────────────
-# 6 · Tooltip y despliegue
-# ─────────────────────────────────────────────────────────────────
-if layers:
-    tooltip = {
-        "html": (
-            "<b>🚦 Tráfico:</b> {denominacion}<br/>"
-            "<b>📍 Balenbisi:</b> {direccion}<br/>"
-            "<b>🚲 Bicis disp.:</b> {Bicis_disponibles}"
-        ),
-        "style": {"backgroundColor": "white", "color": "black"}
-    }
-
     st.pydeck_chart(pdk.Deck(
         initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
         layers=layers,
-        tooltip=tooltip
+        tooltip={"text": "{denominacion}"},
     ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
