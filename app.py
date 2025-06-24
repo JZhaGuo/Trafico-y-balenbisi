@@ -37,8 +37,18 @@ def load_traffic():
     try:
         r = requests.get(url, params={"limit": 1000}, timeout=10)
         r.raise_for_status()
-        datos = r.json().get("results", [])
-        return pd.DataFrame(datos)
+        js = r.json()
+        # Extraemos la lista de registros
+        records = js.get("records", []) or js.get("results", [])
+        # Cada record trae un dict "fields" con tus columnas (incluido "estado")
+        rows = []
+        for rec in records:
+            if "fields" in rec:
+                rows.append(rec["fields"])
+            elif "record" in rec and "fields" in rec["record"]:
+                rows.append(rec["record"]["fields"])
+        df = pd.DataFrame(rows)
+        return df
     except Exception as e:
         print("[Tráfico] error:", e)
         return pd.DataFrame()
