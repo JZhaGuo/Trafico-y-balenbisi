@@ -191,7 +191,7 @@ with st.spinner("Calculando probabilidad de congestión…"):
     prob = predict_congestion(df_traf)
 st.subheader("Pronóstico de congestión en 15 minutos")
 st.progress(prob)
-st.write(f"🔮 **Probabilidad de congestión en 15 min:** {prob*100:.1f}%"
+st.write(f"🔮 **Probabilidad de congestión en 15 min:** {prob*100:.1f}%")
 
 # ─── Tabla Valenbisi ──────────────────────────────────────────────────────
 if show_bici and not df_bici.empty:
