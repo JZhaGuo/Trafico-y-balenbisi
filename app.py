@@ -46,11 +46,19 @@ def load_traffic():
         resp.raise_for_status()
         js = resp.json()
         recs = js.get("records", [])
-        rows = [r["fields"] for r in recs if "fields" in r]
+        rows = []
+        for r in recs:
+            # copiamos los campos principales
+            f = r.get("fields", {}).copy()
+
+            # inyectamos el timestamp de actualización del registro
+            ts = r.get("record_timestamp") or r.get("recordTimestamp")
+            if ts:
+                f["timestamp"] = ts
+
+            rows.append(f)
+
         df = pd.DataFrame(rows)
-        # Renombrar timestamp
-        if "fecha" in df.columns:
-            df = df.rename(columns={"fecha": "timestamp"})
         return df
     except Exception as e:
         print("[Tráfico] error:", e)
