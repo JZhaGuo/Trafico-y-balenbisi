@@ -74,7 +74,7 @@ show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 if st.sidebar.button("🔄 Actualizar datos"):
     load_traffic.clear()
     load_valenbisi.clear()
-    st.rerun()
+    st.experimental_rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
@@ -111,8 +111,10 @@ color_map = {
     2: [255,  0,   0,  80],  # rojo
     3: [0,    0,   0,  80],  # negro
 }
-if "estado" in df_traf.columns:
-    df_traf["fill_color"] = df_traf["estado"].map(color_map).fillna([200,200,200,80])
+# aplicamos un map seguro que retorna un RGBA por defecto si falta
+df_traf["fill_color"] = df_traf["estado"].apply(
+    lambda s: color_map.get(s, [200,200,200,80])
+)
 
 
 # ─────────────────────────────────────────────────────────────────
