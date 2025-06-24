@@ -5,13 +5,17 @@ import streamlit as st
 
 st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
+
 # ────────────────────────────────────────────────────────────
 # 1 · Carga de datos con caché
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_valenbisi():
     url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-    params = {"dataset": "valenbisi-estaciones", "rows": 500}
+    params = {
+        "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
+        "rows": 500
+    }
     try:
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
@@ -19,9 +23,9 @@ def load_valenbisi():
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
-            # bikes_available → Bicis_disponibles
-            if "bikes_available" in f:
-                f["Bicis_disponibles"] = f.pop("bikes_available")
+            # Renombrar available → Bicis_disponibles si hace falta
+            if "bicis_disponibles" not in f and "slots_disponibles" in f:
+                f["Bicis_disponibles"] = f.pop("slots_disponibles")
             # geo_point_2d → lat, lon
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
@@ -70,7 +74,7 @@ show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 if st.sidebar.button("🔄 Actualizar datos"):
     load_traffic.clear()
     load_valenbisi.clear()
-    st.rerun()
+    st.experimental_rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
@@ -111,7 +115,7 @@ if show_traf and not df_traf.empty and {"latitud", "longitud"}.issubset(df_traf.
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lon", "lat"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat", "lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
