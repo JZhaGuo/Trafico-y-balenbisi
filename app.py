@@ -19,10 +19,12 @@ def load_valenbisi():
     url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
     params = {"dataset": "valenbisi-estaciones", "rows": 500}
     try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        datos = [rec["fields"] for rec in r.json().get("records", [])]
-        return pd.DataFrame(datos)
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        js = resp.json()
+        recs = js.get("records", []) or js.get("results", [])
+        rows = [r.get("fields", {}) for r in recs]
+        return pd.DataFrame(rows)
     except Exception as e:
         print("[Valenbisi] error:", e)
         return pd.DataFrame()
@@ -35,18 +37,18 @@ def load_traffic():
         "datasets/estat-transit-temps-real-estado-trafico-tiempo-real/records"
     )
     try:
-        r = requests.get(url, params={"limit": 1000}, timeout=10)
-        r.raise_for_status()
-        js = r.json()
-        # Extraemos la lista de registros
-        records = js.get("records", []) or js.get("results", [])
-        # Cada record trae un dict "fields" con tus columnas (incluido "estado")
+        resp = requests.get(url, params={"limit": 1000}, timeout=10)
+        resp.raise_for_status()
+        js = resp.json()
+        # OpenDataSoft expone los datos en "records", cada uno con {fields: {...}}
+        recs = js.get("records", []) or js.get("results", [])
         rows = []
-        for rec in records:
-            if "fields" in rec:
-                rows.append(rec["fields"])
-            elif "record" in rec and "fields" in rec["record"]:
-                rows.append(rec["record"]["fields"])
+        for r in recs:
+            # Algunos endpoints usan "record" → "fields"
+            if "fields" in r:
+                rows.append(r["fields"])
+            elif "record" in r and "fields" in r["record"]:
+                rows.append(r["record"]["fields"])
         df = pd.DataFrame(rows)
         return df
     except Exception as e:
