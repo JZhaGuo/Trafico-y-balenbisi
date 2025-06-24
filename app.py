@@ -1,242 +1,197 @@
-import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
 import pydeck as pdk
-from markov import predict_congestion
-from ml_model import entrenar_logreg
+import streamlit as st
+from datetime import datetime, timezone
 
-st.set_page_config(page_title="Tráfico + Valenbisi Valencia", layout="wide")
+from markov import predict_congestion          # tu función ya existente
+from ml_model import entrenar_logreg           # modelo ML
 
-def find_col(df, keywords):
-    lc = {c: c.lower() for c in df.columns}
-    for orig, low in lc.items():
-        for kw in keywords:
-            if kw in low:
-                return orig
-    return None
+st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
-# ─── Cargar datos de Valenbisi ────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────────────────────
+# 1 · Funciones de carga de datos (caché nueva)
+# ────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_valenbisi():
     url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-    params = {"dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad", "rows": 500}
+    params = {"dataset": "valenbisi-estaciones", "rows": 500}
     try:
-        res = requests.get(url, params=params, timeout=30).json()
-        recs = res.get("records", [])
-        df = pd.DataFrame([r["fields"] for r in recs])
-    except Exception:
-        df = pd.DataFrame()
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        datos = [rec["fields"] for rec in r.json().get("records", [])]
+        return pd.DataFrame(datos)
+    except Exception as e:
+        print("[Valenbisi] error:", e)
+        return pd.DataFrame()
 
-    # Detecta dinámicamente columna de dirección y bicis
-    col_dir   = find_col(df, ["address", "direcci", "direccion"])
-    col_bicis = find_col(df, ["bici", "disponibl"])
 
-    # Extrae lat/lon
-    if "geo_point_2d" in df:
-        df["lat"] = df["geo_point_2d"].apply(
-            lambda x: float(x[0]) if isinstance(x, (list,tuple)) and len(x)==2 else None
-        )
-        df["lon"] = df["geo_point_2d"].apply(
-            lambda x: float(x[1]) if isinstance(x, (list,tuple)) and len(x)==2 else None
-        )
-    else:
-        df["lat"], df["lon"] = None, None
-
-    # Renombra
-    ren = {}
-    if col_dir:   ren[col_dir]   = "Direccion"
-    if col_bicis: ren[col_bicis] = "Bicis_disponibles"
-    df = df.rename(columns=ren)
-
-    # Filtra sólo esas columnas + lat/lon
-    keep = [c for c in ["Direccion","Bicis_disponibles","lat","lon"] if c in df]
-    df = df[keep]
-
-    # Quita filas sin datos críticos
-    for c in ["Direccion","lat","lon"]:
-        if c in df:
-            df = df.dropna(subset=[c])
-
-    # Limpia NaN → None
-    df = df.astype(object).where(pd.notnull(df), None)
-    return df
-
-# ─── Cargar datos de tráfico ─────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_traffic():
-    url = "https://valencia.opendatasoft.com/api/explore/v2.1/catalog/" \
-          "datasets/estat-transit-temps-real-estado-trafico-tiempo-real/records"
-    res = requests.get(url, params={"limit": -1}, timeout=30).json()
-    df = pd.json_normalize(res["results"])
-
-    df = df.rename(columns={
-        "geo_point_2d.lat":                  "lat",
-        "geo_point_2d.lon":                  "lon",
-        "geo_shape.geometry.coordinates":    "path",
-        "denominaci_denominaci_":            "denominacion",
-        "estat_estado":                      "estado",
-        "id_tram_id_tramo":                  "idtramo"
-    })
-
-    ESTADOS = {
-        0: ([0, 180, 40],    "Fluido"),
-        1: ([255,165,   0],  "Denso"),
-        2: ([220, 30,  30],  "Congestionado"),
-        3: ([0,   0,   0],   "Cortado"),
-        4: ([120,120,120],   "Sin datos"),
-    }
-    df[["color","estado_txt"]] = df["estado"].apply(
-        lambda s: pd.Series(ESTADOS.get(s if s in ESTADOS else 4))
+    url = (
+        "https://valencia.opendatasoft.com/api/explore/v2.1/catalog/"
+        "datasets/estat-transit-temps-real-estado-trafico-tiempo-real/records"
     )
-    df["timestamp"] = pd.Timestamp.utcnow()
+    try:
+        r = requests.get(url, params={"limit": 1000}, timeout=10)
+        r.raise_for_status()
+        datos = r.json().get("results", [])
+        return pd.DataFrame(datos)
+    except Exception as e:
+        print("[Tráfico] error:", e)
+        return pd.DataFrame()
 
-    df = df[df["lat"].notna() & df["lon"].notna()].reset_index(drop=True)
-    df = df.astype(object).where(pd.notnull(df), None)
-    return df
 
-# ─── Main ────────────────────────────────────────────────────────────────
-df_traf = load_traffic()
-df_bici = load_valenbisi()
+# ────────────────────────────────────────────────────────────────────────────
+# 2 · Histórico para entrenar el modelo ML
+# ────────────────────────────────────────────────────────────────────────────
+def append_to_history(df_traf: pd.DataFrame):
+    if df_traf.empty or "fecha" not in df_traf.columns:
+        return
+    hist = df_traf[["fecha", "estado"]].copy()
+    hist.columns = ["timestamp", "estado"]
+    hist.to_csv("hist_traffic.csv", mode="a", header=False, index=False)
 
-# ─── Barra lateral ───────────────────────────────────────────────────────
-st.sidebar.header("Filtros")
+
+# ────────────────────────────────────────────────────────────────────────────
+# 3 · Modelo de regresión logística (se cachea como recurso)
+# ────────────────────────────────────────────────────────────────────────────
+@st.cache_resource
+def get_logreg_model():
+    try:
+        df_hist = pd.read_csv("hist_traffic.csv", names=["timestamp", "estado"])
+    except FileNotFoundError:
+        df_hist = pd.DataFrame(columns=["timestamp", "estado"])
+    return entrenar_logreg(df_hist)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 4 · Barra lateral: filtros, leyenda y controles
+# ────────────────────────────────────────────────────────────────────────────
+st.sidebar.title("Filtros")
+
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 
-# --- Recargar datos manualmente -----------------------------------------
 if st.sidebar.button("🔄  Actualizar datos"):
-    load_traffic.clear()       # vacía la caché
+    load_traffic.clear()
     load_valenbisi.clear()
-    st.rerun()    # recarga la página completa
+    st.rerun()
 
-# --- Filtro por vía / tramo ---------------------------------------------
-vias = sorted(df_traf["denominacion"].dropna().unique())
-vias_sel = st.sidebar.multiselect(
-    "Filtrar por vía", vias, help="Selecciona una o varias vías")
-if vias_sel:
-    df_traf = df_traf[df_traf["denominacion"].isin(vias_sel)]
-
-# --- Filtro mínimo de bicis ---------------------------------------------
-if show_bici and not df_bici.empty and "Bicis_disponibles" in df_bici:
-    max_bicis = int(df_bici["Bicis_disponibles"].max())
-    min_bicis = st.sidebar.slider(
-        "Mínimo bicis disponibles", 0, max_bicis, 0)
-    df_bici = df_bici[df_bici["Bicis_disponibles"] >= min_bicis]
+# Leyenda de estados
+st.sidebar.subheader("Estados de tráfico")
+st.sidebar.markdown(
+    """
+    | Código | Significado |
+    |--------|-------------|
+    | **0**  | 🟢 Fluido |
+    | **1**  | 🟠 Moderado |
+    | **2**  | 🔴 Denso |
+    | **3**  | ⚫ Cortado |
+    """,
+    unsafe_allow_html=True,
+)
 
 metodo = st.sidebar.radio(
     "Método de predicción",
-    ("Cadena de Markov", "Regresión logística")
+    ("Cadena de Markov", "Regresión logística"),
+    index=0,
 )
 comparar = st.sidebar.checkbox("Comparar ambos métodos", False)
 
 
-# ─── KPIs tráfico ────────────────────────────────────────────────────────
-c1,c2,c3,c4 = st.columns(4)
-agg = df_traf["estado_txt"].value_counts(normalize=True).mul(100).round(1)
-c1.metric("🚗 Fluido %",    f"{agg.get('Fluido',0)}%")
-c2.metric("🚧 Denso %",     f"{agg.get('Denso',0)}%")
-c3.metric("⛔ Congest. %",  f"{agg.get('Congestionado',0)}%")
-c4.metric("✋ Cortado %",   f"{agg.get('Cortado',0)}%")
+# ────────────────────────────────────────────────────────────────────────────
+# 5 · Carga de datos (con caché)
+# ────────────────────────────────────────────────────────────────────────────
+df_traf = load_traffic()
+df_bici = load_valenbisi()
 
-# ─── Definir capas PyDeck ────────────────────────────────────────────────
-layers = []
+if df_traf.empty:
+    st.error("❌ No se pudieron cargar los datos de tráfico.")
+if df_bici.empty and show_bici:
+    st.warning("⚠️  Sin datos de Valenbisi en este momento.")
 
-if show_traf and not df_traf.empty:
-    # líneas de tráfico
-    layers.append(pdk.Layer(
-        "PathLayer", df_traf,
-        get_path="path",
-        get_color="color",
-        get_width=4
-    ))
-    # puntos de tráfico
-    layers.append(pdk.Layer(
-        "ScatterplotLayer", df_traf,
-        get_position="[lon, lat]",
-        get_fill_color="color",
-        get_radius=60,
-        pickable=True
-    ))
+append_to_history(df_traf)  # guarda para entrenar ML más adelante
 
-if show_bici and not df_bici.empty:
-    # puntos de Valenbisi
-    layers.append(pdk.Layer(
-        "ScatterplotLayer", df_bici,
-        get_position="[lon, lat]",
-        get_fill_color="[0,200,255]",
-        get_radius=80,
-        pickable=True
-    ))
 
-# ─── Centrar en Valencia ─────────────────────────────────────────────────
-view = pdk.ViewState(
-    latitude=39.4699,
-    longitude=-0.3763,
-    zoom=12
-)
+# ────────────────────────────────────────────────────────────────────────────
+# 6 · Predicción de congestión
+# ────────────────────────────────────────────────────────────────────────────
+estado_actual = int(df_traf["estado"].mode()[0]) if not df_traf.empty else 0
 
-# ─── Tooltip combinado ───────────────────────────────────────────────────
-tooltip = {
-    "html": (
-        # si existe 'denominacion' lo muestra, si existe 'Direccion' también
-        "<b>{denominacion}</b><br/>{estado_txt}"
-        "<br/><b>{Direccion}</b> {Bicis_disponibles} bicis"
-    ),
-    "style": {"color": "white"}
-}
-
-if layers:
-    st.pydeck_chart(
-        pdk.Deck(
-            initial_view_state=view,
-            layers=layers,
-            tooltip=tooltip
-        )
-    )
-
-# ─── Pronóstico de congestión ────────────────────────────────────────────
-with st.spinner("Calculando probabilidad de congestión…"):
-    if metodo == "Cadena de Markov":
-        with st.spinner("Calculando con cadena de Markov…"):
-            prob_markov = predict_congestion(df_traf)
-            prob_ml     = None
-    elif metodo == "Regresión logística":
-        with st.spinner("Calculando con regresión logística…"):
-            modelo, acc, roc_auc = get_logreg_model()
-            # features actuales
-            ahora = pd.Timestamp.utcnow()
-            x_actual = pd.DataFrame(
-                {
-                "estado": [estado_actual],        # tu variable actual
-                "hora":   [ahora.hour],
-                "diasem": [ahora.dayofweek],
-                }
-            )
-            prob_ml     = float(modelo.predict_proba(x_actual)[:, 1])
-            prob_markov = None
-    else:
-        prob_markov = prob_ml = None  # salvaguarda
+prob_markov = prob_ml = None
+acc = roc = None
 
 if metodo == "Cadena de Markov":
+    with st.spinner("Calculando con cadena de Markov…"):
+        prob_markov = predict_congestion(df_traf)
+
+else:  # Regresión logística
+    with st.spinner("Calculando con regresión logística…"):
+        try:
+            modelo, acc, roc = get_logreg_model()
+            ahora = datetime.now(timezone.utc)
+            x_actual = pd.DataFrame(
+                {"estado": [estado_actual], "hora": [ahora.hour], "diasem": [ahora.weekday()]}
+            )
+            prob_ml = float(modelo.predict_proba(x_actual)[0, 1])
+        except ValueError as e:
+            st.error(f"⚠️ {e}")
+            prob_ml = None
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 7 · Mostrar resultados
+# ────────────────────────────────────────────────────────────────────────────
+if prob_markov is not None:
     st.progress(prob_markov)
     st.write(f"🔮 **Probabilidad (Markov): {prob_markov*100:.1f}%**")
 
-elif metodo == "Regresión logística":
+if prob_ml is not None:
     st.progress(prob_ml)
     st.write(f"🔮 **Probabilidad (LogReg): {prob_ml*100:.1f}%**")
-    st.write(f"**Accuracy:** {acc:.2f} · **ROC-AUC:** {roc_auc:.2f}")
+    st.write(f"**Accuracy:** {acc:.2f} · **ROC-AUC:** {roc:.2f}")
 
 if comparar and prob_markov is not None and prob_ml is not None:
     diff = abs(prob_markov - prob_ml) * 100
     st.write(f"📊 *Diferencia Markov vs LogReg:* **{diff:.1f} puntos**")
 
-# Métricas visibles solo si eliges logística
-if model_choice == "Regresión logística":
-    st.write("**Métricas del modelo (test set):**")
-    st.json({k: f"{v:.3f}" for k, v in metrics.items()})
 
-# ─── Tabla Valenbisi ──────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# 8 · Mapa (solo si hay datos y el usuario lo pidió)
+# ────────────────────────────────────────────────────────────────────────────
+layers = []
+if show_traf and not df_traf.empty:
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=df_traf,
+            get_position="[longitud, latitud]",
+            get_fill_color="[255, 0, 0, 80]",
+            get_radius=40,
+            pickable=True,
+        )
+    )
 if show_bici and not df_bici.empty:
-    st.subheader("Disponibilidad Valenbisi")
-    cols = [c for c in ["Direccion","Bicis_disponibles"] if c in df_bici]
-    st.dataframe(df_bici[cols].reset_index(drop=True))
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=df_bici,
+            get_position="[lon, lat]",
+            get_fill_color="[0, 140, 255, 80]",
+            get_radius=40,
+            pickable=True,
+        )
+    )
+
+if layers:
+    midpoint = [39.47, -0.376]
+    st.pydeck_chart(
+        pdk.Deck(
+            initial_view_state=pdk.ViewState(latitude=midpoint[0], longitude=midpoint[1], zoom=12),
+            layers=layers,
+            tooltip={"text": "{denominacion}"},
+        )
+    )
