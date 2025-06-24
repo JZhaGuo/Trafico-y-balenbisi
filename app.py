@@ -23,9 +23,14 @@ def load_valenbisi():
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
-            # Renombrar available → Bicis_disponibles si hace falta
-            if "bicis_disponibles" not in f and "slots_disponibles" in f:
+            # Renombrar slots_disponibles → Bicis_disponibles
+            if "slots_disponibles" in f:
                 f["Bicis_disponibles"] = f.pop("slots_disponibles")
+            # Dirección
+            if "address" in f:
+                f["direccion"] = f["address"]
+            elif "direccion" not in f:
+                f["direccion"] = "Desconocida"
             # geo_point_2d → lat, lon
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
@@ -89,6 +94,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
+
 # ─────────────────────────────────────────────────────────────────
 # 3 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
@@ -99,6 +105,7 @@ if df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
 if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
+
 
 # ─────────────────────────────────────────────────────────────────
 # 4 · Mapa
@@ -129,7 +136,14 @@ if layers:
     st.pydeck_chart(pdk.Deck(
         initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
         layers=layers,
-        tooltip={"text": "{denominacion}"},
+        tooltip={
+            "text": (
+                "Tráfico: {denominacion}\n\n"
+                if "{denominacion}" in layers[0].get("data", {}).columns else ""
+            )
+            + "Dirección: {direccion}\n"
+            + "Bicis disponibles: {Bicis_disponibles}"
+        }
     ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
