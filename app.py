@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import pydeck as pdk
 from markov import predict_congestion
-from modelos import train_logreg
+from ml_model import entrenar_logreg
 
 st.set_page_config(page_title="Tráfico + Valenbisi Valencia", layout="wide")
 
@@ -123,6 +123,13 @@ if show_bici and not df_bici.empty and "Bicis_disponibles" in df_bici:
         "Mínimo bicis disponibles", 0, max_bicis, 0)
     df_bici = df_bici[df_bici["Bicis_disponibles"] >= min_bicis]
 
+metodo = st.sidebar.radio(
+    "Método de predicción",
+    ("Cadena de Markov", "Regresión logística")
+)
+comparar = st.sidebar.checkbox("Comparar ambos métodos", False)
+
+
 # ─── KPIs tráfico ────────────────────────────────────────────────────────
 c1,c2,c3,c4 = st.columns(4)
 agg = df_traf["estado_txt"].value_counts(normalize=True).mul(100).round(1)
@@ -189,17 +196,39 @@ if layers:
 
 # ─── Pronóstico de congestión ────────────────────────────────────────────
 with st.spinner("Calculando probabilidad de congestión…"):
-    if model_choice == "Markov":
-        prob = predict_congestion(df_traf)           # tu función actual
+    if metodo == "Cadena de Markov":
+        with st.spinner("Calculando con cadena de Markov…"):
+            prob_markov = predict_congestion(df_traf)
+            prob_ml     = None
+    elif metodo == "Regresión logística":
+        with st.spinner("Calculando con regresión logística…"):
+            modelo, acc, roc_auc = get_logreg_model()
+            # features actuales
+            ahora = pd.Timestamp.utcnow()
+            x_actual = pd.DataFrame(
+                {
+                "estado": [estado_actual],        # tu variable actual
+                "hora":   [ahora.hour],
+                "diasem": [ahora.dayofweek],
+                }
+            )
+            prob_ml     = float(modelo.predict_proba(x_actual)[:, 1])
+            prob_markov = None
     else:
-        # Entrenamos (o cargamos) la regresión logística
-        model, metrics = st.cache_resource(ttl=900)(train_logreg)(df_hist)
-        hora      = pd.Timestamp.utcnow().hour
-        estado_act = int(df_traf["estado"].mode()[0]) if not df_traf.empty else 0
-        prob = model.predict_proba([[hora, estado_act]])[0, 1]
+        prob_markov = prob_ml = None  # salvaguarda
 
-st.progress(prob)
-st.write(f"🔮 **Probabilidad de congestión en 15 min:** {prob*100:.1f}%")
+if metodo == "Cadena de Markov":
+    st.progress(prob_markov)
+    st.write(f"🔮 **Probabilidad (Markov): {prob_markov*100:.1f}%**")
+
+elif metodo == "Regresión logística":
+    st.progress(prob_ml)
+    st.write(f"🔮 **Probabilidad (LogReg): {prob_ml*100:.1f}%**")
+    st.write(f"**Accuracy:** {acc:.2f} · **ROC-AUC:** {roc_auc:.2f}")
+
+if comparar and prob_markov is not None and prob_ml is not None:
+    diff = abs(prob_markov - prob_ml) * 100
+    st.write(f"📊 *Diferencia Markov vs LogReg:* **{diff:.1f} puntos**")
 
 # Métricas visibles solo si eliges logística
 if model_choice == "Regresión logística":
