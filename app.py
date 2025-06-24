@@ -100,7 +100,7 @@ df_bici = load_valenbisi()
 # ─── Barra lateral ───────────────────────────────────────────────────────
 st.sidebar.header("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
-show_bici  = st.sidebar.checkbox("Mostrar Valenbisi", True)
+show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 
 # ─── KPIs tráfico ────────────────────────────────────────────────────────
 c1,c2,c3,c4 = st.columns(4)
