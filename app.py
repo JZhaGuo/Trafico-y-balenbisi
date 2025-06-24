@@ -10,6 +10,7 @@ from ml_model import entrenar_logreg
 
 st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
+
 # ────────────────────────────────────────────────────────────
 # 1 · Carga de datos con caché nueva
 # ────────────────────────────────────────────────────────────
@@ -18,25 +19,24 @@ def load_valenbisi():
     url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
     params = {"dataset": "valenbisi-estaciones", "rows": 500}
     try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        js = r.json()
-        recs = js.get("records", [])
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        js = resp.json()
         rows = []
-        for rec in recs:
+        for rec in js.get("records", []):
             f = rec.get("fields", {}).copy()
-            # bikes
+            # bikes_available → Bicis_disponibles
             if "bikes_available" in f:
                 f["Bicis_disponibles"] = f.pop("bikes_available")
             # geo_point_2d → lat, lon
-            if "geo_point_2d" in f and isinstance(f["geo_point_2d"], list):
+            if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
             rows.append(f)
-        df = pd.DataFrame(rows)
-        return df
+        return pd.DataFrame(rows)
     except Exception as e:
         st.error(f"Error cargando Valenbisi: {e}")
         return pd.DataFrame()
+
 
 @st.cache_data(ttl=180)
 def load_traffic():
@@ -46,24 +46,23 @@ def load_traffic():
         "rows": 1000
     }
     try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        js = r.json()
-        recs = js.get("records", [])
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        js = resp.json()
         rows = []
-        for rec in recs:
+        for rec in js.get("records", []):
             f = rec.get("fields", {}).copy()
-            # timestamp
+            # record_timestamp → timestamp
             ts = rec.get("record_timestamp") or rec.get("recordTimestamp")
             if ts:
                 f["timestamp"] = ts
-            # latitud / longitud
-            if "geo_point_2d" in f and isinstance(f["geo_point_2d"], list):
+            # geo_point_2d → latitud, longitud
+            if isinstance(f.get("geo_point_2d"), list):
                 f["latitud"], f["longitud"] = f["geo_point_2d"]
-            # Algunos tramos pueden venir con latitud/longitud directas
-            if "latitud" not in f and "latitude" in f:
+            # fallback keys
+            if "latitude" in f and "latitud" not in f:
                 f["latitud"] = f["latitude"]
-            if "longitud" not in f and "longitude" in f:
+            if "longitude" in f and "longitud" not in f:
                 f["longitud"] = f["longitude"]
             rows.append(f)
         df = pd.DataFrame(rows)
@@ -72,14 +71,16 @@ def load_traffic():
         st.error(f"Error cargando tráfico: {e}")
         return pd.DataFrame()
 
+
 # ─────────────────────────────────────────────────────────────────
 # 2 · Guardar histórico para ML
 # ─────────────────────────────────────────────────────────────────
-def append_to_history(df):
-    if df.empty or "timestamp" not in df.columns or "estado" not in df.columns:
+def append_to_history(df_traf: pd.DataFrame):
+    if df_traf.empty or "timestamp" not in df_traf.columns or "estado" not in df_traf.columns:
         return
-    hist = df[["timestamp", "estado"]].copy()
+    hist = df_traf[["timestamp", "estado"]].copy()
     hist.to_csv("hist_traffic.csv", mode="a", header=False, index=False)
+
 
 # ─────────────────────────────────────────────────────────────────
 # 3 · Modelo de Regresión Logística (cache resource)
@@ -91,6 +92,7 @@ def get_logreg_model():
     except FileNotFoundError:
         df_hist = pd.DataFrame(columns=["timestamp", "estado"])
     return entrenar_logreg(df_hist)
+
 
 # ─────────────────────────────────────────────────────────────────
 # 4 · Barra lateral: filtros y leyenda
@@ -112,7 +114,6 @@ st.sidebar.markdown(
     | **1**  | 🟠 Denso    |
     | **2**  | 🔴 Congest. |
     | **3**  | ⚫ Cortado  |
-    | **4**  | ❓ Sin datos|
     """,
     unsafe_allow_html=True
 )
@@ -120,18 +121,20 @@ st.sidebar.markdown(
 metodo = st.sidebar.radio("Método de predicción", ["Cadena de Markov", "Regresión logística"])
 comparar = st.sidebar.checkbox("Comparar ambos métodos")
 
+
 # ─────────────────────────────────────────────────────────────────
 # 5 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
 df_traf = load_traffic()
 df_bici = load_valenbisi()
 
-if df_traf.empty:
+if df_traf.empty or "estado" not in df_traf.columns:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
-if df_bici.empty and show_bici:
+if df_bici.empty:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
 append_to_history(df_traf)
+
 
 # ─────────────────────────────────────────────────────────────────
 # 6 · Predicción
@@ -139,7 +142,7 @@ append_to_history(df_traf)
 prob_markov = prob_ml = None
 acc = roc = None
 
-if not df_traf.empty and "estado" in df_traf.columns:
+if (not df_traf.empty) and ("estado" in df_traf.columns):
     estado_actual = int(df_traf["estado"].mode()[0])
     if metodo == "Cadena de Markov":
         with st.spinner("Calculando (Markov)…"):
@@ -157,6 +160,7 @@ if not df_traf.empty and "estado" in df_traf.columns:
 else:
     st.info("⏳ Sin datos de tráfico; no se calcula predicción.")
 
+
 # ─────────────────────────────────────────────────────────────────
 # 7 · Mostrar resultados
 # ─────────────────────────────────────────────────────────────────
@@ -165,28 +169,29 @@ if prob_markov is not None:
     st.write(f"🔮 Probabilidad (Markov): {prob_markov*100:.1f}%")
 if prob_ml is not None:
     st.progress(prob_ml)
-    st.write(f"🔮 Prob (LogReg): {prob_ml*100:.1f}%")
+    st.write(f"🔮 Probabilidad (LogReg): {prob_ml*100:.1f}%")
     st.write(f"✅ Accuracy: {acc:.2f} · ROC-AUC: {roc:.2f}")
-if comparar and prob_markov is not None and prob_ml is not None:
-    diff = abs(prob_markov - prob_ml) * 100
+if comparar and (prob_markov is not None) and (prob_ml is not None):
+    diff = abs(prob_markov - prob_ml)*100
     st.write(f"⚖️ Diferencia: {diff:.1f} puntos")
+
 
 # ─────────────────────────────────────────────────────────────────
 # 8 · Mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud", "longitud"}.issubset(df_traf.columns):
+if show_traf and (not df_traf.empty) and {"latitud","longitud"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
         get_position="[longitud, latitud]",
         get_fill_color="[255,0,0,80]",
-        get_radius=50,
+        get_radius=40,
         pickable=True
     ))
 
-if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
+if show_bici and (not df_bici.empty) and {"lat","lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
