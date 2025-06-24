@@ -25,10 +25,19 @@ def load_valenbisi():
         recs = js.get("records", [])
         rows = [r.get("fields", {}) for r in recs]
         df = pd.DataFrame(rows)
+
         # Renombrar columna de bicis si hace falta
         if "bikes_available" in df.columns:
             df = df.rename(columns={"bikes_available": "Bicis_disponibles"})
+
+        # Extraer lat/lon de geo_point_2d ([lat, lon]) si existe
+        if "geo_point_2d" in df.columns:
+            df[["lat", "lon"]] = pd.DataFrame(
+                df["geo_point_2d"].tolist(), index=df.index
+            )
+
         return df
+
     except Exception as e:
         print("[Valenbisi] error:", e)
         return pd.DataFrame()
@@ -47,6 +56,7 @@ def load_traffic():
         js = resp.json()
         recs = js.get("records", [])
         rows = []
+
         for r in recs:
             # copiamos los campos principales
             f = r.get("fields", {}).copy()
@@ -59,7 +69,15 @@ def load_traffic():
             rows.append(f)
 
         df = pd.DataFrame(rows)
+
+        # Extraer latitud/longitud de geo_point_2d ([lat, lon]) si existe
+        if "geo_point_2d" in df.columns:
+            df[["latitud", "longitud"]] = pd.DataFrame(
+                df["geo_point_2d"].tolist(), index=df.index
+            )
+
         return df
+
     except Exception as e:
         print("[Tráfico] error:", e)
         return pd.DataFrame()
@@ -123,10 +141,12 @@ comparar = st.sidebar.checkbox("Comparar ambos métodos", False)
 # ─────────────────────────────────────────────────────────────────
 df_traf = load_traffic()
 df_bici = load_valenbisi()
+
 if df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
 if df_bici.empty and show_bici:
     st.warning("⚠️  Sin datos de Valenbisi en este momento.")
+
 append_to_history(df_traf)
 
 
