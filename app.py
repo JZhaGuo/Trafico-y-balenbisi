@@ -70,7 +70,7 @@ show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 if st.sidebar.button("🔄 Actualizar datos"):
     load_traffic.clear()
     load_valenbisi.clear()
-    st.experimental_rerun()
+    st.rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
