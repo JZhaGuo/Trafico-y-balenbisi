@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import pydeck as pdk
 from markov import predict_congestion
+from modelos import train_logreg
 
 st.set_page_config(page_title="Tráfico + Valenbisi Valencia", layout="wide")
 
@@ -188,10 +189,22 @@ if layers:
 
 # ─── Pronóstico de congestión ────────────────────────────────────────────
 with st.spinner("Calculando probabilidad de congestión…"):
-    prob = predict_congestion(df_traf)
-st.subheader("Pronóstico de congestión en 15 minutos")
+    if model_choice == "Markov":
+        prob = predict_congestion(df_traf)           # tu función actual
+    else:
+        # Entrenamos (o cargamos) la regresión logística
+        model, metrics = st.cache_resource(ttl=900)(train_logreg)(df_hist)
+        hora      = pd.Timestamp.utcnow().hour
+        estado_act = int(df_traf["estado"].mode()[0]) if not df_traf.empty else 0
+        prob = model.predict_proba([[hora, estado_act]])[0, 1]
+
 st.progress(prob)
 st.write(f"🔮 **Probabilidad de congestión en 15 min:** {prob*100:.1f}%")
+
+# Métricas visibles solo si eliges logística
+if model_choice == "Regresión logística":
+    st.write("**Métricas del modelo (test set):**")
+    st.json({k: f"{v:.3f}" for k, v in metrics.items()})
 
 # ─── Tabla Valenbisi ──────────────────────────────────────────────────────
 if show_bici and not df_bici.empty:
