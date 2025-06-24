@@ -1,4 +1,3 @@
-
 import pandas as pd
 import requests
 import pydeck as pdk
@@ -59,6 +58,12 @@ def load_traffic():
                 f["latitud"] = f["latitude"]
             if "longitude" in f and "longitud" not in f:
                 f["longitud"] = f["longitude"]
+            # transformar estado a int si existe
+            if "estado" in f:
+                try:
+                    f["estado"] = int(f["estado"])
+                except:
+                    f["estado"] = None
             rows.append(f)
         return pd.DataFrame(rows)
     except Exception as e:
@@ -102,16 +107,30 @@ if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
 # ─────────────────────────────────────────────────────────────────
-# 4 · Mapa
+# 4 · Asignar color dinámico según estado de tráfico
+# ─────────────────────────────────────────────────────────────────
+color_map = {
+    0: [0, 255,   0,  80],   # verde
+    1: [255,165,   0,  80],   # naranja
+    2: [255,  0,   0,  80],   # rojo
+    3: [0,    0,   0,  80],   # negro
+}
+df_traf["fill_color"] = df_traf["estado"].apply(
+    lambda s: color_map.get(s, [200,200,200,80])
+)
+
+
+# ─────────────────────────────────────────────────────────────────
+# 5 · Mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud", "longitud"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
         get_position="[longitud, latitud]",
-        get_fill_color="[255, 0, 0, 80]",
+        get_fill_color="fill_color",
         get_radius=40,
         pickable=True,
     ))
