@@ -1,0 +1,7 @@
+streamlit>=1.33
+pydeck
+pandas
+numpy
+requests
+protobuf<=3.20.3
+click>=8.1.0
