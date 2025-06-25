@@ -3,6 +3,7 @@ import requests
 import pydeck as pdk
 import streamlit as st
 
+from datetime import datetime, timezone
 from ml_model import entrenar_logreg
 
 st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
@@ -134,6 +135,58 @@ color_map = {
 df_traf["fill_color"] = df_traf["estado"].apply(
     lambda s: color_map.get(s, [200,200,200,80])
 )
+
+
+
+
+# ─────────────────────────────────────────────────────────────────
+# 5bis · Carga y entrenamiento del modelo de Regresión Logística
+# ─────────────────────────────────────────────────────────────────
+@st.cache_resource
+def get_logreg_model():
+    try:
+        # Asume que hist_traffic.csv está en la raíz
+        df_hist = pd.read_csv(
+            "hist_traffic.csv",
+            names=["timestamp","estado"],
+            header=0,  # si la primera línea es el header "timestamp,estado"
+            parse_dates=["timestamp"]
+        )
+    except FileNotFoundError:
+        st.warning("No se encontró el histórico hist_traffic.csv para ML.")
+        return None, None, None
+
+    # en tu CSV actual todos los estados son 0, así que quizá no alcance variedad
+    try:
+        model, acc, roc = entrenar_logreg(df_hist)
+    except ValueError as e:
+        st.warning(f"Imposible entrenar ML: {e}")
+        return None, None, None
+
+    return model, acc, roc
+
+# Obtén modelo y métricas
+modelo, acc, roc = get_logreg_model()
+
+# Si tienes datos de tráfico, calcula probabilidad futura
+if show_traf and modelo is not None and not df_traf.empty:
+    estado_actual = int(df_traf["estado"].mode()[0])
+    ahora = datetime.now(timezone.utc)
+    X_act = pd.DataFrame({
+        "estado": [estado_actual],
+        "hora":   [ahora.hour],
+        "diasem": [ahora.weekday()],
+    })
+    prob_ml = modelo.predict_proba(X_act)[0,1]
+
+    # ─────────────────────────────────────────────────────────────────
+    # 5ter · Mostrar resultados de ML
+    # ─────────────────────────────────────────────────────────────────
+    st.write("### 🔮 Predicción ML (15 min adelante)")
+    st.write(f"- **Accuracy:** {acc:.2f}")
+    st.write(f"- **ROC-AUC:**  {roc:.2f}")
+    st.write(f"- **P(congestión ≥2):** {prob_ml*100:.1f}%")
+
 
 
 # ─────────────────────────────────────────────────────────────────
