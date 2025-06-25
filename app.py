@@ -79,7 +79,7 @@ show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 search_street = st.sidebar.text_input("Buscar calle (opcional)", "")
 
 if st.sidebar.button("🔄  Actualizar datos"):
-    st.experimental_rerun()
+    st.rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
