@@ -77,10 +77,29 @@ def load_traffic():
 st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
+
+# ————————————————————————————————————————————————————————
+# Opción extra: multiselect de calles (solo si mostramos tráfico)
+# ————————————————————————————————————————————————————————
+if show_traf:
+    df_temp = load_traffic()  # carga sin filtrar
+    if "denominacion" in df_temp.columns:
+        calles = sorted(df_temp["denominacion"].dropna().unique())
+        seleccion = st.sidebar.multiselect(
+            "Filtrar por calle (opcional)",
+            options=calles,
+            default=calles
+        )
+        # Aplicamos filtro sobre el df_traf definitivo
+        df_traf_full = df_temp
+        df_traf = df_traf_full[df_traf_full["denominacion"].isin(seleccion)]
+    else:
+        df_traf = df_temp
+else:
+    df_traf = load_traffic()
+
 if st.sidebar.button("🔄 Actualizar datos"):
-    load_traffic.clear()
-    load_valenbisi.clear()
-    st.rerun()
+    st.experimental_rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
@@ -96,12 +115,11 @@ st.sidebar.markdown(
 )
 
 # ─────────────────────────────────────────────────────────────────
-# 3 · Carga de datos
+# 3 · Carga de Valenbisi
 # ─────────────────────────────────────────────────────────────────
-df_traf = load_traffic()
 df_bici = load_valenbisi()
 
-if df_traf.empty:
+if df_traf.empty and show_traf:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
 if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
@@ -118,7 +136,6 @@ color_map = {
 df_traf["fill_color"] = df_traf["estado"].apply(
     lambda s: color_map.get(s, [200,200,200,80])
 )
-
 
 # ─────────────────────────────────────────────────────────────────
 # 5 · Mapa
