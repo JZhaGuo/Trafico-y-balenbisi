@@ -3,6 +3,8 @@ import requests
 import pydeck as pdk
 import streamlit as st
 
+from ml_model import entrenar_logreg
+
 st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
 
