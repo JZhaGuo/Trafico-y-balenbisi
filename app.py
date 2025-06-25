@@ -79,27 +79,15 @@ show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 
 # ————————————————————————————————————————————————————————
-# Opción extra: multiselect de calles (solo si mostramos tráfico)
+# BÚSQUEDA OPCIONAL DE CALLE
 # ————————————————————————————————————————————————————————
-if show_traf:
-    df_temp = load_traffic()  # carga sin filtrar
-    if "denominacion" in df_temp.columns:
-        calles = sorted(df_temp["denominacion"].dropna().unique())
-        seleccion = st.sidebar.multiselect(
-            "Filtrar por calle (opcional)",
-            options=calles,
-            default=calles
-        )
-        # Aplicamos filtro sobre el df_traf definitivo
-        df_traf_full = df_temp
-        df_traf = df_traf_full[df_traf_full["denominacion"].isin(seleccion)]
-    else:
-        df_traf = df_temp
-else:
-    df_traf = load_traffic()
+search_street = st.sidebar.text_input("Buscar calle (opcional)", "")
+# ─────────────────────────────────────────────────────────────────
 
 if st.sidebar.button("🔄 Actualizar datos"):
-    st.experimental_rerun()
+    load_traffic.clear()
+    load_valenbisi.clear()
+    st.rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
@@ -115,17 +103,25 @@ st.sidebar.markdown(
 )
 
 # ─────────────────────────────────────────────────────────────────
-# 3 · Carga de Valenbisi
+# 3 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
+df_traf = load_traffic()
 df_bici = load_valenbisi()
 
-if df_traf.empty and show_traf:
+if df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
 if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
 # ─────────────────────────────────────────────────────────────────
-# 4 · Asignar color dinámico según estado de tráfico
+# 4 · Filtrar por calle si se ha indicado texto
+# ─────────────────────────────────────────────────────────────────
+if search_street and "denominacion" in df_traf.columns:
+    df_traf = df_traf[df_traf["denominacion"]
+                      .str.contains(search_street, case=False, na=False)]
+
+# ─────────────────────────────────────────────────────────────────
+# 5 · Asignar color dinámico según estado de tráfico
 # ─────────────────────────────────────────────────────────────────
 color_map = {
     0: [0, 255,   0,  80],   # verde
@@ -137,8 +133,9 @@ df_traf["fill_color"] = df_traf["estado"].apply(
     lambda s: color_map.get(s, [200,200,200,80])
 )
 
+
 # ─────────────────────────────────────────────────────────────────
-# 5 · Mapa
+# 6 · Mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
