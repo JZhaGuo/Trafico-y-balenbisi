@@ -80,6 +80,21 @@ st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 search_street = st.sidebar.text_input("Buscar calle o estación", "")
+
+# ─────────────────────────────────────────────────────────────────
+# Filtro dinámico por calles (denominación)
+# ─────────────────────────────────────────────────────────────────
+if show_traf:
+    calles = sorted(df_traf["denominacion"].dropna().unique())
+    seleccion = st.sidebar.multiselect(
+        "Filtrar por calle",
+        options=calles,
+        default=calles  # puedes cambiar a [] si prefieres empezar sin nada
+    )
+    if seleccion:
+        df_traf = df_traf[df_traf["denominacion"].isin(seleccion)]
+
+
 if st.sidebar.button("🔄 Actualizar datos"):
     load_traffic.clear()
     load_valenbisi.clear()
