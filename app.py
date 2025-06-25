@@ -22,7 +22,7 @@ def load_traffic():
     rows = []
     for rec in recs:
         f = rec.get("fields", {}).copy()
-        # asegurar estado numérico
+        # convertir estado a int
         if "estado" in f:
             try: f["estado"] = int(f["estado"])
             except: f["estado"] = None
@@ -65,34 +65,32 @@ def load_valenbisi():
 df_traf = load_traffic()
 df_bici = load_valenbisi()
 
+
 # ─────────────────────────────────────────────────────────────────
-# 3 · Sidebar: filtros y leyenda
+# 3 · Sidebar: filtros y recarga
 # ─────────────────────────────────────────────────────────────────
 st.sidebar.title("Filtros")
 
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 
-# FILTRO MULTISELECT DE CALLES
+# multiselect opcional: por defecto TODOS
 if show_traf and "denominacion" in df_traf.columns:
     calles = sorted(df_traf["denominacion"].dropna().unique())
     seleccion = st.sidebar.multiselect(
         "Filtrar por calle",
         options=calles,
-        default=calles
+        default=calles  # si no cambias, se muestran todas
     )
-    # aplicamos el filtro
     df_traf = df_traf[df_traf["denominacion"].isin(seleccion)]
 
 if st.sidebar.button("🔄 Actualizar datos"):
-    load_traffic.clear()
-    load_valenbisi.clear()
     st.experimental_rerun()
 
-st.sidebar.subheader("Estados de tráfico (colores en mapa)")
+st.sidebar.subheader("Estados de tráfico")
 st.sidebar.markdown(
     """
-    | Código | Color      |
+    | Estado | Color      |
     |--------|------------|
     | 0      | 🟢 Fluido  |
     | 1      | 🟠 Moderado|
@@ -107,31 +105,29 @@ st.sidebar.markdown(
 # 4 · Mensajes de error/aviso
 # ─────────────────────────────────────────────────────────────────
 if show_traf and df_traf.empty:
-    st.error("❌ No se pudieron cargar o filtrar los datos de tráfico.")
+    st.error("❌ No hay datos de tráfico para esa selección.")
 if show_bici and df_bici.empty:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
 
 # ─────────────────────────────────────────────────────────────────
-# 5 · Asignar color dinámico según estado de tráfico
+# 5 · Colorear tráfico en real time
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0, 255,   0,  80],  # verde
-    1: [255,165,   0,  80],  # naranja
-    2: [255,  0,   0,  80],  # rojo
-    3: [0,    0,   0,  80],  # negro
+    0: [0, 255,   0,  80],
+    1: [255,165,   0,  80],
+    2: [255,  0,   0,  80],
+    3: [0,    0,   0,  80],
 }
-df_traf["fill_color"] = df_traf["estado"].apply(
-    lambda s: color_map.get(s, [200,200,200,80])
-)
+df_traf["fill_color"] = df_traf["estado"].apply(lambda s: color_map.get(s, [200,200,200,80]))
 
 
 # ─────────────────────────────────────────────────────────────────
-# 6 · Mapa
+# 6 · Construcción de capas y mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
@@ -141,7 +137,7 @@ if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.iss
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
