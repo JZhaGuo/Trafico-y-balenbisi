@@ -144,7 +144,7 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direccion"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
