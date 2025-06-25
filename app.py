@@ -29,8 +29,6 @@ def load_valenbisi():
             # geo_point_2d → lat, lon
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
-            # dirección
-            f["direccion"] = f.get("address", "Desconocida")
             rows.append(f)
         return pd.DataFrame(rows)
     except Exception as e:
@@ -79,11 +77,10 @@ def load_traffic():
 st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
-search_street = st.sidebar.text_input("Buscar calle o estación", "")
 if st.sidebar.button("🔄 Actualizar datos"):
     load_traffic.clear()
     load_valenbisi.clear()
-    st.experimental_rerun()
+    st.rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
@@ -104,24 +101,13 @@ st.sidebar.markdown(
 df_traf = load_traffic()
 df_bici = load_valenbisi()
 
-if df_traf.empty and show_traf:
+if df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
 if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
 # ─────────────────────────────────────────────────────────────────
-# 4 · Filtro por texto de calle/estación
-# ─────────────────────────────────────────────────────────────────
-if search_street:
-    if "denominacion" in df_traf.columns:
-        df_traf = df_traf[df_traf["denominacion"]
-                          .str.contains(search_street, case=False, na=False)]
-    if "direccion" in df_bici.columns:
-        df_bici = df_bici[df_bici["direccion"]
-                          .str.contains(search_street, case=False, na=False)]
-
-# ─────────────────────────────────────────────────────────────────
-# 5 · Asignar color dinámico según estado de tráfico
+# 4 · Asignar color dinámico según estado de tráfico
 # ─────────────────────────────────────────────────────────────────
 color_map = {
     0: [0, 255,   0,  80],   # verde
@@ -133,8 +119,9 @@ df_traf["fill_color"] = df_traf["estado"].apply(
     lambda s: color_map.get(s, [200,200,200,80])
 )
 
+
 # ─────────────────────────────────────────────────────────────────
-# 6 · Mapa
+# 5 · Mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
@@ -148,7 +135,7 @@ if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.iss
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat", "lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
