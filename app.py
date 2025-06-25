@@ -167,3 +167,13 @@ if layers:
     ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
+
+
+# ─────────────────────────────────────────────────────────────────
+# 7 · Lista de calles bajo el mapa
+# ─────────────────────────────────────────────────────────────────
+if not df_traf.empty and "denominacion" in df_traf.columns:
+    calles = sorted(df_traf["denominacion"].dropna().unique())
+    st.subheader("📋 Calles mostradas")
+    for calle in calles:
+        st.markdown(f"- {calle}")
