@@ -78,7 +78,7 @@ show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
 
 search_street = st.sidebar.text_input("Buscar calle (opcional)", "")
 
-if st.sidebar.button("🔄 Actualizar datos"):
+if st.sidebar.button("🔄  Actualizar datos"):
     st.experimental_rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
@@ -108,12 +108,11 @@ if show_bici and df_bici.empty:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 4 · Filtrar por calle si se ha introducido texto
+# 4 · Filtrar por calle si texto
 # ─────────────────────────────────────────────────────────────────
 if show_traf and search_street and "denominacion" in df_traf.columns:
-    df_traf = df_traf[
-        df_traf["denominacion"].str.contains(search_street, case=False, na=False)
-    ]
+    df_traf = df_traf[df_traf["denominacion"]
+                      .str.contains(search_street, case=False, na=False)]
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -131,7 +130,7 @@ df_traf["fill_color"] = df_traf["estado"].apply(
 
 
 # ─────────────────────────────────────────────────────────────────
-# 6 · Construcción de capas
+# 6 · Construcción de capas y despliegue del mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
@@ -155,10 +154,6 @@ if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direcci
         pickable=True,
     ))
 
-
-# ─────────────────────────────────────────────────────────────────
-# 7 · Despliegue de mapa
-# ─────────────────────────────────────────────────────────────────
 if layers:
     st.pydeck_chart(pdk.Deck(
         initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
@@ -170,23 +165,23 @@ else:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 8 · Predicción ML (Regresión logística + métricas)
+# 7 · Predicción ML (Regresión logística + métricas)
 # ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_logreg_model():
-    # Leer CSV sin parse_dates
+    # Leer CSV con nombres y omitir la primera línea de cabecera
     try:
-        df_hist = pd.read_csv("hist_traffic.csv")
+        df_hist = pd.read_csv(
+            "hist_traffic.csv",
+            names=["timestamp","estado"],
+            header=0
+        )
     except FileNotFoundError:
         st.warning("⚠️ No encontré hist_traffic.csv.")
         return None, None, None
 
-    # convertir timestamp manualmente
-    if "timestamp" in df_hist.columns:
-        df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
-    else:
-        st.warning("⚠️ hist_traffic.csv no tiene columna 'timestamp'.")
-        return None, None, None
+    # Convertir timestamp a datetime
+    df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
 
     if len(df_hist) < 100:
         st.warning("⚠️ Histórico insuficiente para entrenar ML.")
@@ -199,7 +194,6 @@ def get_logreg_model():
         return None, None, None
 
     return model, acc, roc
-
 
 modelo, acc, roc = get_logreg_model()
 
@@ -217,7 +211,7 @@ if show_traf and modelo and not df_traf.empty:
     st.subheader("🔮 Predicción ML (15 min adelante)")
     st.write(f"- **Accuracy:** {acc:.2f}")
     st.write(f"- **ROC-AUC:**  {roc:.2f}")
-    st.write(f"- **P(congestión ≥2):** {prob_ml*100:.1f}%")
+    st.write(f"- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
 
 elif show_traf:
     st.markdown("---")
@@ -225,7 +219,7 @@ elif show_traf:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 9 · Lista de calles bajo el mapa
+# 8 · Lista de calles bajo el mapa
 # ─────────────────────────────────────────────────────────────────
 if show_traf and not df_traf.empty and "denominacion" in df_traf.columns:
     calles = sorted(df_traf["denominacion"].dropna().unique())
