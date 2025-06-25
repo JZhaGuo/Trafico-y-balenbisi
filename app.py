@@ -18,19 +18,23 @@ def load_valenbisi():
         "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
         "rows": 500
     }
-    r = requests.get(url, params=params, timeout=10)
-    r.raise_for_status()
-    recs = r.json().get("records", [])
-    rows = []
-    for rec in recs:
-        f = rec.get("fields", {}).copy()
-        if "slots_disponibles" in f:
-            f["Bicis_disponibles"] = f.pop("slots_disponibles")
-        f["direccion"] = f.get("address", "Desconocida")
-        if isinstance(f.get("geo_point_2d"), list):
-            f["lat"], f["lon"] = f["geo_point_2d"]
-        rows.append(f)
-    return pd.DataFrame(rows)
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        recs = r.json().get("records", [])
+        rows = []
+        for rec in recs:
+            f = rec.get("fields", {}).copy()
+            if "slots_disponibles" in f:
+                f["Bicis_disponibles"] = f.pop("slots_disponibles")
+            f["direccion"] = f.get("address", "Desconocida")
+            if isinstance(f.get("geo_point_2d"), list):
+                f["lat"], f["lon"] = f["geo_point_2d"]
+            rows.append(f)
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.error(f"Error cargando Valenbisi: {e}")
+        return pd.DataFrame()
 
 
 @st.cache_data(ttl=180)
@@ -40,25 +44,29 @@ def load_traffic():
         "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
         "rows": 1000
     }
-    r = requests.get(url, params=params, timeout=10)
-    r.raise_for_status()
-    recs = r.json().get("records", [])
-    rows = []
-    for rec in recs:
-        f = rec.get("fields", {}).copy()
-        if isinstance(f.get("geo_point_2d"), list):
-            f["latitud"], f["longitud"] = f["geo_point_2d"]
-        if "latitude" in f and "latitud" not in f:
-            f["latitud"] = f["latitude"]
-        if "longitude" in f and "longitud" not in f:
-            f["longitud"] = f["longitude"]
-        if "estado" in f:
-            try:
-                f["estado"] = int(f["estado"])
-            except:
-                f["estado"] = None
-        rows.append(f)
-    return pd.DataFrame(rows)
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        recs = r.json().get("records", [])
+        rows = []
+        for rec in recs:
+            f = rec.get("fields", {}).copy()
+            if isinstance(f.get("geo_point_2d"), list):
+                f["latitud"], f["longitud"] = f["geo_point_2d"]
+            if "latitude" in f and "latitud" not in f:
+                f["latitud"] = f["latitude"]
+            if "longitude" in f and "longitud" not in f:
+                f["longitud"] = f["longitude"]
+            if "estado" in f:
+                try:
+                    f["estado"] = int(f["estado"])
+                except:
+                    f["estado"] = None
+            rows.append(f)
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.error(f"Error cargando tráfico: {e}")
+        return pd.DataFrame()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -100,21 +108,22 @@ if show_bici and df_bici.empty:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 4 · Filtrar por calle si texto
+# 4 · Filtrar por calle si se ha introducido texto
 # ─────────────────────────────────────────────────────────────────
 if show_traf and search_street and "denominacion" in df_traf.columns:
-    df_traf = df_traf[df_traf["denominacion"]
-                      .str.contains(search_street, case=False, na=False)]
+    df_traf = df_traf[
+        df_traf["denominacion"].str.contains(search_street, case=False, na=False)
+    ]
 
 
 # ─────────────────────────────────────────────────────────────────
 # 5 · Colorear tráfico en tiempo real
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0, 255,   0,  80],  # verde
-    1: [255,165,   0,  80],  # naranja
-    2: [255,  0,   0,  80],  # rojo
-    3: [0,    0,   0,  80],  # negro
+    0: [0, 255,   0,  80],   # verde
+    1: [255,165,   0,  80],   # naranja
+    2: [255,  0,   0,  80],   # rojo
+    3: [0,    0,   0,  80],   # negro
 }
 df_traf["fill_color"] = df_traf["estado"].apply(
     lambda s: color_map.get(s, [200,200,200,80])
@@ -126,7 +135,7 @@ df_traf["fill_color"] = df_traf["estado"].apply(
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
@@ -136,7 +145,7 @@ if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.iss
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles", "direccion"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles","direccion"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
@@ -165,19 +174,30 @@ else:
 # ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_logreg_model():
+    # Leer CSV sin parse_dates
     try:
-        df_hist = pd.read_csv("hist_traffic.csv", parse_dates=["timestamp"])
+        df_hist = pd.read_csv("hist_traffic.csv")
     except FileNotFoundError:
         st.warning("⚠️ No encontré hist_traffic.csv.")
         return None, None, None
+
+    # convertir timestamp manualmente
+    if "timestamp" in df_hist.columns:
+        df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
+    else:
+        st.warning("⚠️ hist_traffic.csv no tiene columna 'timestamp'.")
+        return None, None, None
+
     if len(df_hist) < 100:
         st.warning("⚠️ Histórico insuficiente para entrenar ML.")
         return None, None, None
+
     try:
         model, acc, roc = entrenar_logreg(df_hist)
     except Exception as e:
         st.warning(f"⚠️ Error entrenando ML: {e}")
         return None, None, None
+
     return model, acc, roc
 
 
@@ -197,7 +217,7 @@ if show_traf and modelo and not df_traf.empty:
     st.subheader("🔮 Predicción ML (15 min adelante)")
     st.write(f"- **Accuracy:** {acc:.2f}")
     st.write(f"- **ROC-AUC:**  {roc:.2f}")
-    st.write(f"- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
+    st.write(f"- **P(congestión ≥2):** {prob_ml*100:.1f}%")
 
 elif show_traf:
     st.markdown("---")
