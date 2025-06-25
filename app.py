@@ -10,87 +10,85 @@ st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 # 1 · Carga de datos con caché
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
-def load_traffic():
-    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-    params = {
-        "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
-        "rows": 1000
-    }
-    r = requests.get(url, params=params, timeout=10)
-    r.raise_for_status()
-    recs = r.json().get("records", [])
-    rows = []
-    for rec in recs:
-        f = rec.get("fields", {}).copy()
-        # convertir estado a int
-        if "estado" in f:
-            try: f["estado"] = int(f["estado"])
-            except: f["estado"] = None
-        # geo_point_2d → latitud, longitud
-        if isinstance(f.get("geo_point_2d"), list):
-            f["latitud"], f["longitud"] = f["geo_point_2d"]
-        # alias falls
-        if "latitude" in f and "latitud" not in f:
-            f["latitud"] = f["latitude"]
-        if "longitude" in f and "longitud" not in f:
-            f["longitud"] = f["longitude"]
-        rows.append(f)
-    return pd.DataFrame(rows)
-
-
-@st.cache_data(ttl=180)
 def load_valenbisi():
     url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
     params = {
         "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
         "rows": 500
     }
-    r = requests.get(url, params=params, timeout=10)
-    r.raise_for_status()
-    recs = r.json().get("records", [])
-    rows = []
-    for rec in recs:
-        f = rec.get("fields", {}).copy()
-        if "slots_disponibles" in f:
-            f["Bicis_disponibles"] = f.pop("slots_disponibles")
-        if isinstance(f.get("geo_point_2d"), list):
-            f["lat"], f["lon"] = f["geo_point_2d"]
-        rows.append(f)
-    return pd.DataFrame(rows)
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        recs = r.json().get("records", [])
+        rows = []
+        for rec in recs:
+            f = rec.get("fields", {}).copy()
+            # Renombrar available → Bicis_disponibles si hace falta
+            if "bicis_disponibles" not in f and "slots_disponibles" in f:
+                f["Bicis_disponibles"] = f.pop("slots_disponibles")
+            # geo_point_2d → lat, lon
+            if isinstance(f.get("geo_point_2d"), list):
+                f["lat"], f["lon"] = f["geo_point_2d"]
+            # dirección
+            f["direccion"] = f.get("address", "Desconocida")
+            rows.append(f)
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.error(f"Error cargando Valenbisi: {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=180)
+def load_traffic():
+    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+    params = {
+        "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
+        "rows": 1000
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        recs = r.json().get("records", [])
+        rows = []
+        for rec in recs:
+            f = rec.get("fields", {}).copy()
+            # geo_point_2d → latitud, longitud
+            if isinstance(f.get("geo_point_2d"), list):
+                f["latitud"], f["longitud"] = f["geo_point_2d"]
+            # alias falls
+            if "latitude" in f and "latitud" not in f:
+                f["latitud"] = f["latitude"]
+            if "longitude" in f and "longitud" not in f:
+                f["longitud"] = f["longitude"]
+            # transformar estado a int si existe
+            if "estado" in f:
+                try:
+                    f["estado"] = int(f["estado"])
+                except:
+                    f["estado"] = None
+            rows.append(f)
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.error(f"Error cargando tráfico: {e}")
+        return pd.DataFrame()
 
 
 # ─────────────────────────────────────────────────────────────────
-# 2 · Carga de datos
-# ─────────────────────────────────────────────────────────────────
-df_traf = load_traffic()
-df_bici = load_valenbisi()
-
-
-# ─────────────────────────────────────────────────────────────────
-# 3 · Sidebar: filtros y recarga
+# 2 · Barra lateral: filtros y leyenda
 # ─────────────────────────────────────────────────────────────────
 st.sidebar.title("Filtros")
-
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
-
-# multiselect opcional: por defecto TODOS
-if show_traf and "denominacion" in df_traf.columns:
-    calles = sorted(df_traf["denominacion"].dropna().unique())
-    seleccion = st.sidebar.multiselect(
-        "Filtrar por calle",
-        options=calles,
-        default=calles  # si no cambias, se muestran todas
-    )
-    df_traf = df_traf[df_traf["denominacion"].isin(seleccion)]
-
+search_street = st.sidebar.text_input("Buscar calle o estación", "")
 if st.sidebar.button("🔄 Actualizar datos"):
+    load_traffic.clear()
+    load_valenbisi.clear()
     st.experimental_rerun()
 
-st.sidebar.subheader("Estados de tráfico")
+st.sidebar.subheader("Estados de tráfico (colores en mapa)")
 st.sidebar.markdown(
     """
-    | Estado | Color      |
+    | Código | Color      |
     |--------|------------|
     | 0      | 🟢 Fluido  |
     | 1      | 🟠 Moderado|
@@ -100,34 +98,47 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
+# ─────────────────────────────────────────────────────────────────
+# 3 · Carga de datos
+# ─────────────────────────────────────────────────────────────────
+df_traf = load_traffic()
+df_bici = load_valenbisi()
 
-# ─────────────────────────────────────────────────────────────────
-# 4 · Mensajes de error/aviso
-# ─────────────────────────────────────────────────────────────────
-if show_traf and df_traf.empty:
-    st.error("❌ No hay datos de tráfico para esa selección.")
-if show_bici and df_bici.empty:
+if df_traf.empty and show_traf:
+    st.error("❌ No se pudieron cargar los datos de tráfico.")
+if df_bici.empty and show_bici:
     st.warning("⚠️ Sin datos de Valenbisi en este momento.")
 
+# ─────────────────────────────────────────────────────────────────
+# 4 · Filtro por texto de calle/estación
+# ─────────────────────────────────────────────────────────────────
+if search_street:
+    if "denominacion" in df_traf.columns:
+        df_traf = df_traf[df_traf["denominacion"]
+                          .str.contains(search_street, case=False, na=False)]
+    if "direccion" in df_bici.columns:
+        df_bici = df_bici[df_bici["direccion"]
+                          .str.contains(search_street, case=False, na=False)]
 
 # ─────────────────────────────────────────────────────────────────
-# 5 · Colorear tráfico en real time
+# 5 · Asignar color dinámico según estado de tráfico
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0, 255,   0,  80],
-    1: [255,165,   0,  80],
-    2: [255,  0,   0,  80],
-    3: [0,    0,   0,  80],
+    0: [0, 255,   0,  80],   # verde
+    1: [255,165,   0,  80],   # naranja
+    2: [255,  0,   0,  80],   # rojo
+    3: [0,    0,   0,  80],   # negro
 }
-df_traf["fill_color"] = df_traf["estado"].apply(lambda s: color_map.get(s, [200,200,200,80]))
-
+df_traf["fill_color"] = df_traf["estado"].apply(
+    lambda s: color_map.get(s, [200,200,200,80])
+)
 
 # ─────────────────────────────────────────────────────────────────
-# 6 · Construcción de capas y mapa
+# 6 · Mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
@@ -137,7 +148,7 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat","lon","Bicis_disponibles"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat", "lon", "Bicis_disponibles"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
