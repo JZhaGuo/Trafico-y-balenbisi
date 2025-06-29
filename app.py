@@ -18,6 +18,9 @@ def load_valenbisi():
     # 1a) CSV local opcional
     try:
         df = pd.read_csv("valenbisi.csv")
+        # Si vienen separados lat y lon en dos columnas distintas,
+        # renómbralas aquí (ajusta según tus nombres reales):
+        # df.rename(columns={"latitude":"lat","longitude":"lon"}, inplace=True)
         if not df.empty:
             return df
     except FileNotFoundError:
@@ -97,7 +100,9 @@ def load_traffic():
 st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
+
 search_street = st.sidebar.text_input("Buscar calle (opcional)", "")
+
 if st.sidebar.button("🔄  Actualizar datos"):
     st.rerun()
 
@@ -156,6 +161,7 @@ else:
 # 6 · Construcción de capas y despliegue del mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
+
 if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -165,6 +171,7 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         get_radius=40,
         pickable=True,
     ))
+
 if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -201,6 +208,7 @@ def get_logreg_model():
         return None, None, None
 
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
+
     if len(df_hist) < 100:
         st.warning("⚠️ Histórico insuficiente para entrenar ML.")
         return None, None, None
@@ -230,10 +238,9 @@ if show_traf and modelo and not df_traf.empty and "estado" in df_traf.columns:
     st.write(f"- **Accuracy:** {acc:.2f}")
     st.write(f"- **ROC-AUC:**  {roc:.2f}")
     st.write(f"- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
-else:
-    if show_traf:
-        st.markdown("---")
-        st.warning("⚠️ Predicción ML no disponible.")
+elif show_traf:
+    st.markdown("---")
+    st.warning("⚠️ Predicción ML no disponible.")
 
 
 # ─────────────────────────────────────────────────────────────────
