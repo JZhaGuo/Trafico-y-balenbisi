@@ -18,9 +18,6 @@ def load_valenbisi():
     # 1a) CSV local opcional
     try:
         df = pd.read_csv("valenbisi.csv")
-        # Si vienen separados lat y lon en dos columnas distintas,
-        # renómbralas aquí (ajusta según tus nombres reales):
-        # df.rename(columns={"latitude":"lat","longitude":"lon"}, inplace=True)
         if not df.empty:
             return df
     except FileNotFoundError:
@@ -38,7 +35,7 @@ def load_valenbisi():
         recs = r.json().get("records", [])
         rows = []
         for rec in recs:
-            f = rec.get("fields", {}).copy()
+            f = rec["fields"].copy()
             if "slots_disponibles" in f:
                 f["Bicis_disponibles"] = f.pop("slots_disponibles")
             f["direccion"] = f.get("address", "Desconocida")
@@ -53,11 +50,10 @@ def load_valenbisi():
 
 @st.cache_data(ttl=180)
 def load_traffic():
-    # 1a) CSV local: usamos tu trafico_historico.csv
+    # 1a) CSV local con posiciones
     try:
-        df = pd.read_csv("trafico_historico.csv")
-        if "estado" in df.columns:
-            df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
+        df = pd.read_csv("trafico.csv")
+        df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
         if not df.empty:
             return df
     except FileNotFoundError:
@@ -75,7 +71,7 @@ def load_traffic():
         recs = r.json().get("records", [])
         rows = []
         for rec in recs:
-            f = rec.get("fields", {}).copy()
+            f = rec["fields"].copy()
             if isinstance(f.get("geo_point_2d"), list):
                 f["latitud"], f["longitud"] = f["geo_point_2d"]
             if "latitude" in f and "latitud" not in f:
@@ -100,10 +96,8 @@ def load_traffic():
 st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
-
 search_street = st.sidebar.text_input("Buscar calle (opcional)", "")
-
-if st.sidebar.button("🔄  Actualizar datos"):
+if st.sidebar.button("🔄 Actualizar datos"):
     st.rerun()
 
 st.sidebar.subheader("Estados de tráfico (colores en mapa)")
@@ -124,7 +118,7 @@ st.sidebar.markdown(
 # 3 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
 df_traf = load_traffic()
-df_bici = load_valenbisi()
+df_bici  = load_valenbisi()
 
 if show_traf and df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
@@ -144,15 +138,13 @@ if show_traf and search_street and "denominacion" in df_traf.columns:
 # 5 · Colorear tráfico en tiempo real
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0, 255,   0,  80],
-    1: [255,165,   0,  80],
-    2: [255,  0,   0,  80],
-    3: [0,    0,   0,  80],
+    0: [0,   255,   0,  80],  # verde
+    1: [255, 165,   0,  80],  # naranja
+    2: [255,   0,   0,  80],  # rojo
+    3: [0,     0,   0,  80],  # negro
 }
-if not df_traf.empty and "estado" in df_traf.columns:
-    df_traf["fill_color"] = df_traf["estado"].apply(
-        lambda s: color_map.get(int(s), [200, 200, 200, 80])
-    )
+if not df_traf.empty and {"longitud","latitud","estado"}.issubset(df_traf.columns):
+    df_traf["fill_color"] = df_traf["estado"].apply(lambda s: color_map.get(int(s), [200,200,200,80]))
 else:
     st.error("❌ No se pudieron asignar colores: 'estado' ausente o datos vacíos.")
 
@@ -161,8 +153,7 @@ else:
 # 6 · Construcción de capas y despliegue del mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
-
-if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"longitud","latitud","fill_color","denominacion"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
@@ -171,7 +162,6 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         get_radius=40,
         pickable=True,
     ))
-
 if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -199,7 +189,7 @@ else:
 def get_logreg_model():
     try:
         df_hist = pd.read_csv(
-            "trafico_historico.csv",      # <— usa el mismo CSV que carga la capa de tráfico
+            "trafico_historico.csv",
             names=["timestamp","estado"],
             header=0
         )
@@ -208,7 +198,6 @@ def get_logreg_model():
         return None, None, None
 
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
-
     if len(df_hist) < 100:
         st.warning("⚠️ Histórico insuficiente para entrenar ML.")
         return None, None, None
@@ -237,7 +226,7 @@ if show_traf and modelo and not df_traf.empty and "estado" in df_traf.columns:
     st.subheader("🔮 Predicción ML (15 min adelante)")
     st.write(f"- **Accuracy:** {acc:.2f}")
     st.write(f"- **ROC-AUC:**  {roc:.2f}")
-    st.write(f"- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
+    st.write(f="- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
 elif show_traf:
     st.markdown("---")
     st.warning("⚠️ Predicción ML no disponible.")
