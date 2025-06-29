@@ -198,12 +198,12 @@ else:
 def get_logreg_model():
     try:
         df_hist = pd.read_csv(
-            "hist_traffic.csv",
+            "trafico_historico.csv",
             names=["timestamp","estado"],
             header=0
         )
     except FileNotFoundError:
-        st.warning("⚠️ No encontré hist_traffic.csv.")
+        st.warning("⚠️ No encontré trafico_historico.csv.")
         return None, None, None
 
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
