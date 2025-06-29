@@ -1,4 +1,5 @@
 import pandas as pd
+import requests
 import pydeck as pdk
 import streamlit as st
 from datetime import datetime, timezone
@@ -8,107 +9,65 @@ st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
 
 # ────────────────────────────────────────────────────────────
-# Helpers para normalizar columnas
+# 1 · Carga de datos JSON con caché
 # ────────────────────────────────────────────────────────────
-def normalize_columns(df: pd.DataFrame):
-    # convertir todo a minúsculas y sin espacios
-    df = df.rename(columns=lambda c: c.strip().lower().replace(" ", "_"))
-    return df
-
-def detect_column(df: pd.DataFrame, keywords):
-    """Devuelve la primera columna cuyo nombre incluya alguna de las keywords."""
-    for kw in keywords:
-        for c in df.columns:
-            if kw in c:
-                return c
-    return None
-
-
-# ────────────────────────────────────────────────────────────
-# 1 · Carga de datos con caché: lee CSV remoto y normaliza
-# ────────────────────────────────────────────────────────────
-@st.cache_data(ttl=180)
 @st.cache_data(ttl=180)
 def load_traffic():
-    # URL de descarga directa del CSV
-    csv_url = (
-        "https://valencia.opendatasoft.com/explore/dataset/"
-        "estat-transit-temps-real-estado-trafico-tiempo-real/"
-        "download/?format=csv&rows=1000"
-    )
+    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+    params = {
+        "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
+        "rows": 1000
+    }
     try:
-        df = pd.read_csv(csv_url)
-        # Normalizar nombres
-        df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
-
-        # Buscamos la columna con el par [lat, lon]
-        geo2 = next((c for c in df.columns if "geo_point_2d" in c), None)
-        if geo2 is None:
-            raise KeyError("No encontré columna geo_point_2d")
-
-        # Extraer latitud y longitud
-        # Puede llegar como "[39.47, -0.37]" o "39.47,-0.37"
-        def parse_lat(x):
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        recs = r.json().get("records", [])
+        rows = []
+        for rec in recs:
+            f = rec.get("fields", {}).copy()
+            # extraer geo_point_2d
+            gp = f.get("geo_point_2d")
+            if isinstance(gp, list) and len(gp) == 2:
+                f["latitud"], f["longitud"] = gp
+            # garantizar denominacion y estado
+            f["denominacion"] = f.get("denominacion", f.get("denominacio", ""))
             try:
-                s = str(x).strip("[] ")
-                return float(s.split(",")[0])
+                f["estado"] = int(f.get("estado", -1))
             except:
-                return None
-        def parse_lon(x):
-            try:
-                s = str(x).strip("[] ")
-                return float(s.split(",")[1])
-            except:
-                return None
-
-        df["latitud"]  = df[geo2].apply(parse_lat)
-        df["longitud"] = df[geo2].apply(parse_lon)
-
-        # Columna estado y denominación
-        if "estado" not in df.columns or "denominacion" not in df.columns:
-            raise KeyError("Faltan 'estado' o 'denominacion'")
-        df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
-
-        # Filtramos filas sin coordenadas
-        df = df.dropna(subset=["latitud", "longitud"])
-
-        return df
-
+                f["estado"] = -1
+            rows.append(f)
+        return pd.DataFrame(rows)
     except Exception as e:
-        st.error(f"Error cargando tráfico CSV: {e}")
+        st.error(f"Error cargando tráfico (JSON): {e}")
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=180)
 def load_valenbisi():
-    csv_url = (
-        "https://valencia.opendatasoft.com/api/v2/catalog/datasets/"
-        "valenbisi-disponibilitat-valenbisi-dsiponibilidad/exports/csv?"
-        "format=csv&rows=500"
-    )
+    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+    params = {
+        "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
+        "rows": 500
+    }
     try:
-        df = pd.read_csv(csv_url)
-        df = normalize_columns(df)
-        
-        # Renombrar columnas clave
-        slots_col  = detect_column(df, ["slots_disponibles", "bicis_disponibles"])
-        addr_col   = detect_column(df, ["address", "direccion"])
-        lat_col    = detect_column(df, ["geo_point_2d_lat", "lat"])
-        lon_col    = detect_column(df, ["geo_point_2d_lon", "lon"])
-        
-        rename_map = {}
-        if slots_col: rename_map[slots_col] = "bicis_disponibles"
-        if addr_col:  rename_map[addr_col]  = "direccion"
-        if lat_col:   rename_map[lat_col]   = "lat"
-        if lon_col:   rename_map[lon_col]   = "lon"
-        
-        if not rename_map:
-            raise KeyError(f"No encontré columnas válidas en Valenbisi: {df.columns.tolist()}")
-        
-        df = df.rename(columns=rename_map)
-        return df
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        recs = r.json().get("records", [])
+        rows = []
+        for rec in recs:
+            f = rec.get("fields", {}).copy()
+            # slots_disponibles → Bicis_disponibles
+            if "slots_disponibles" in f:
+                f["Bicis_disponibles"] = f.pop("slots_disponibles")
+            # dirección y geo
+            f["direccion"] = f.get("address", "Desconocida")
+            gp = f.get("geo_point_2d")
+            if isinstance(gp, list) and len(gp) == 2:
+                f["lat"], f["lon"] = gp
+            rows.append(f)
+        return pd.DataFrame(rows)
     except Exception as e:
-        st.error(f"Error cargando Valenbisi CSV: {e}")
+        st.error(f"Error cargando Valenbisi (JSON): {e}")
         return pd.DataFrame()
 
 
@@ -116,20 +75,19 @@ def load_valenbisi():
 # 2 · Sidebar: filtros y recarga
 # ─────────────────────────────────────────────────────────────────
 st.sidebar.title("Filtros")
-show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
-show_bici  = st.sidebar.checkbox("Mostrar Valenbisi", True)
-search    = st.sidebar.text_input("Buscar calle (opcional)", "")
+show_traf   = st.sidebar.checkbox("Mostrar tráfico", True)
+show_bici   = st.sidebar.checkbox("Mostrar Valenbisi", True)
+search_st   = st.sidebar.text_input("Buscar calle (opcional)", "")
 if st.sidebar.button("🔄 Actualizar datos"):
-    st.experimental_rerun()
+    st.rerun()
 
 st.sidebar.markdown(
     """
     **Estados de tráfico**  
     0: 🟢 Fluido  
     1: 🟠 Moderado  
-    2: 🔴 Congestionado  
+    2: 🔴 Denso  
     3: ⚫ Cortado  
-    4–9: Pasos y sin datos  
     """,
     unsafe_allow_html=True,
 )
@@ -139,7 +97,7 @@ st.sidebar.markdown(
 # 3 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
 df_traf = load_traffic()
-df_bici  = load_valenbisi()
+df_bici = load_valenbisi()
 
 if show_traf and df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
@@ -150,47 +108,63 @@ if show_bici and df_bici.empty:
 # ─────────────────────────────────────────────────────────────────
 # 4 · Filtrar por calle si texto
 # ─────────────────────────────────────────────────────────────────
-if show_traf and search and "denominacion" in df_traf.columns:
-    df_traf = df_traf[
-        df_traf["denominacion"]
-        .str.contains(search, case=False, na=False)
-    ]
+if show_traf and search_st and "denominacion" in df_traf.columns:
+    df_traf = df_traf[df_traf["denominacion"]
+                      .str.contains(search_st, case=False, na=False)]
 
 
 # ─────────────────────────────────────────────────────────────────
-# 5 · Colorear y mostrar mapa con pydeck
+# 5 · Colorear tráfico en tiempo real
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0,255,0,80],
-    1: [255,165,0,80],
-    2: [255,0,0,80],
-    3: [0,0,0,80],
+    0: [0, 255,   0,  80],
+    1: [255,165,   0,  80],
+    2: [255,  0,   0,  80],
+    3: [0,    0,   0,  80],
 }
-
-if show_traf and not df_traf.empty:
+if show_traf and not df_traf.empty and {"latitud","longitud","estado"}.issubset(df_traf.columns):
     df_traf["fill_color"] = df_traf["estado"].apply(
-        lambda s: color_map.get(int(s), [128,128,128,80])
+        lambda s: color_map.get(s, [200,200,200,80])
     )
-    layer = pdk.Layer(
-        "ScatterplotLayer", data=df_traf,
+else:
+    st.error("❌ No se pudieron asignar colores: faltan coordenadas o estado.")
+
+
+# ─────────────────────────────────────────────────────────────────
+# 6 · Construcción de capas y despliegue del mapa
+# ─────────────────────────────────────────────────────────────────
+layers = []
+if show_traf and not df_traf.empty and "fill_color" in df_traf.columns:
+    layers.append(pdk.Layer(
+        "ScatterplotLayer",
+        data=df_traf,
         get_position="[longitud, latitud]",
         get_fill_color="fill_color",
         get_radius=40,
         pickable=True,
-    )
-    st.pydeck_chart(
-        pdk.Deck(
-            initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
-            layers=[layer],
-            tooltip={"text": "{denominacion}"}
-        )
-    )
+    ))
+if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
+    layers.append(pdk.Layer(
+        "ScatterplotLayer",
+        data=df_bici,
+        get_position="[lon, lat]",
+        get_fill_color="[0,140,255,80]",
+        get_radius=30,
+        pickable=True,
+    ))
+
+if layers:
+    st.pydeck_chart(pdk.Deck(
+        initial_view_state=pdk.ViewState(latitude=39.47, longitude=-0.376, zoom=12),
+        layers=layers,
+        tooltip={"text": "{denominacion}"},
+    ))
 else:
     st.info("No hay capas para mostrar en el mapa.")
 
 
 # ─────────────────────────────────────────────────────────────────
-# 6 · Predicción ML (Regresión logística + métricas)
+# 7 · Predicción ML (Regresión logística + métricas)
 # ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_logreg_model():
@@ -210,36 +184,39 @@ def get_logreg_model():
         return None, None, None
 
     try:
-        return entrenar_logreg(df_hist)
+        model, acc, roc = entrenar_logreg(df_hist)
     except Exception as e:
         st.warning(f"⚠️ Error entrenando ML: {e}")
         return None, None, None
 
+    return model, acc, roc
+
 modelo, acc, roc = get_logreg_model()
 
 if show_traf and modelo and not df_traf.empty:
-    estado_act = int(df_traf["estado"].mode()[0])
-    ahora      = datetime.now(timezone.utc)
-    X_act      = pd.DataFrame({
-        "estado":[estado_act],
-        "hora":  [ahora.hour],
-        "diasem":[ahora.weekday()]
+    estado_actual = int(df_traf["estado"].mode()[0])
+    ahora = datetime.now(timezone.utc)
+    X_act = pd.DataFrame({
+        "estado": [estado_actual],
+        "hora":   [ahora.hour],
+        "diasem": [ahora.weekday()],
     })
-    prob = modelo.predict_proba(X_act)[0,1]
+    prob_ml = modelo.predict_proba(X_act)[0,1]
+
     st.markdown("---")
     st.subheader("🔮 Predicción ML (15 min adelante)")
     st.write(f"- **Accuracy:** {acc:.2f}")
-    st.write(f"- **ROC-AUC:**  {roc:.2f}")
-    st.write(f"- **P(congestión ≥ 2):** {prob*100:.1f}%")
+    st.write(f="- **ROC-AUC:**  {roc:.2f}")
+    st.write(f="- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
 elif show_traf:
+    st.markdown("---")
     st.warning("⚠️ Predicción ML no disponible.")
 
 
 # ─────────────────────────────────────────────────────────────────
-# 7 · Lista de calles bajo el mapa
+# 8 · Lista de calles bajo el mapa
 # ─────────────────────────────────────────────────────────────────
-if show_traf and not df_traf.empty:
-    calles = sorted(df_traf["denominacion"].dropna().unique())
+if show_traf and not df_traf.empty and "denominacion" in df_traf.columns:
     st.subheader("📋 Calles mostradas")
-    for calle in calles:
+    for calle in sorted(df_traf["denominacion"].dropna().unique()):
         st.markdown(f"- {calle}")
