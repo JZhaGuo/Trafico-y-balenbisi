@@ -9,11 +9,24 @@ st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
 
 # ────────────────────────────────────────────────────────────
-# 1 · Carga de datos con caché (API remota ➔ fallback CSV local)
+# 1 · Carga de datos con caché
+#    Primero intenta CSV local; si no existe o está vacío,
+#    intenta la API remota (JSON) como fallback.
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_valenbisi():
-    # 1a) Intentar API remota
+    # 1a) CSV local
+    try:
+        df = pd.read_csv("valenbisi.csv")
+        # Si vienen separados lat y lon en dos columnas distintas,
+        # renómbralas aquí (ajusta según tus nombres reales):
+        # df.rename(columns={"latitude":"lat","longitude":"lon"}, inplace=True)
+        if not df.empty:
+            return df
+    except FileNotFoundError:
+        pass
+
+    # 1b) Fallback API remota (JSON)
     try:
         url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
         params = {
@@ -26,32 +39,34 @@ def load_valenbisi():
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
-            # Renombrar slots
             if "slots_disponibles" in f:
                 f["Bicis_disponibles"] = f.pop("slots_disponibles")
             f["direccion"] = f.get("address", "Desconocida")
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
             rows.append(f)
-        df = pd.DataFrame(rows)
-        if not df.empty:
-            return df
-        # si está vacío, cae al fallback
-    except Exception:
-        pass
-
-    # 1b) Fallback a CSV local de prueba
-    try:
-        st.warning("⚠️ Fallback: cargando datos de Valenbisi desde CSV local.")
-        return pd.read_csv("datos_valenbisi_ejemplo.csv")
+        return pd.DataFrame(rows)
     except Exception as e:
-        st.error(f"Error cargando Valenbisi (remoto + local): {e}")
+        st.error(f"Error cargando Valenbisi (JSON): {e}")
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=180)
 def load_traffic():
-    # 1a) Intentar API remota
+    # 1a) CSV local
+    try:
+        df = pd.read_csv("trafico.csv")
+        # Renombra columnas de posición si es necesario:
+        # df.rename(columns={"latitude":"latitud","longitude":"longitud"}, inplace=True)
+        # Asegúrate de que "estado" está en entero:
+        if "estado" in df.columns:
+            df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
+        if not df.empty:
+            return df
+    except FileNotFoundError:
+        pass
+
+    # 1b) Fallback API remota (JSON)
     try:
         url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
         params = {
@@ -76,19 +91,9 @@ def load_traffic():
                 except:
                     f["estado"] = None
             rows.append(f)
-        df = pd.DataFrame(rows)
-        if not df.empty:
-            return df
-        # si está vacío, caerá al fallback
-    except Exception:
-        pass
-
-    # 1b) Fallback a CSV local de prueba
-    try:
-        st.warning("⚠️ Fallback: cargando datos de tráfico desde CSV local.")
-        return pd.read_csv("datos_trafico_ejemplo.csv")
+        return pd.DataFrame(rows)
     except Exception as e:
-        st.error(f"Error cargando tráfico (remoto + local): {e}")
+        st.error(f"Error cargando tráfico (JSON): {e}")
         return pd.DataFrame()
 
 
@@ -140,14 +145,14 @@ if show_traf and search_street and "denominacion" in df_traf.columns:
 # 5 · Colorear tráfico en tiempo real
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0, 255,   0,  80],   # verde
-    1: [255,165,   0,  80],   # naranja
-    2: [255,  0,   0,  80],   # rojo
-    3: [0,    0,   0,  80],   # negro
+    0: [0, 255,   0,  80],
+    1: [255,165,   0,  80],
+    2: [255,  0,   0,  80],
+    3: [0,    0,   0,  80],
 }
 if not df_traf.empty and "estado" in df_traf.columns:
     df_traf["fill_color"] = df_traf["estado"].apply(
-        lambda s: color_map.get(s, [200, 200, 200, 80])
+        lambda s: color_map.get(int(s), [200, 200, 200, 80])
     )
 else:
     st.error("❌ No se pudieron asignar colores: 'estado' ausente o datos vacíos.")
