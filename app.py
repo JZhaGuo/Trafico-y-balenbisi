@@ -9,42 +9,55 @@ st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
 
 # ────────────────────────────────────────────────────────────
-# 1 · Carga de datos con caché
+# 1 · Carga de datos con caché (API remota ➔ fallback CSV local)
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_valenbisi():
-    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-    params = {
-        "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
-        "rows": 500
-    }
+    # 1a) Intentar API remota
     try:
+        url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+        params = {
+            "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
+            "rows": 500
+        }
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         recs = r.json().get("records", [])
         rows = []
         for rec in recs:
             f = rec.get("fields", {}).copy()
+            # Renombrar slots
             if "slots_disponibles" in f:
                 f["Bicis_disponibles"] = f.pop("slots_disponibles")
             f["direccion"] = f.get("address", "Desconocida")
             if isinstance(f.get("geo_point_2d"), list):
                 f["lat"], f["lon"] = f["geo_point_2d"]
             rows.append(f)
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            return df
+        # si está vacío, cae al fallback
+    except Exception:
+        pass
+
+    # 1b) Fallback a CSV local de prueba
+    try:
+        st.warning("⚠️ Fallback: cargando datos de Valenbisi desde CSV local.")
+        return pd.read_csv("datos_valenbisi_ejemplo.csv")
     except Exception as e:
-        st.error(f"Error cargando Valenbisi: {e}")
+        st.error(f"Error cargando Valenbisi (remoto + local): {e}")
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=180)
 def load_traffic():
-    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-    params = {
-        "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
-        "rows": 1000
-    }
+    # 1a) Intentar API remota
     try:
+        url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+        params = {
+            "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
+            "rows": 1000
+        }
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         recs = r.json().get("records", [])
@@ -63,9 +76,19 @@ def load_traffic():
                 except:
                     f["estado"] = None
             rows.append(f)
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            return df
+        # si está vacío, caerá al fallback
+    except Exception:
+        pass
+
+    # 1b) Fallback a CSV local de prueba
+    try:
+        st.warning("⚠️ Fallback: cargando datos de tráfico desde CSV local.")
+        return pd.read_csv("datos_trafico_ejemplo.csv")
     except Exception as e:
-        st.error(f"Error cargando tráfico: {e}")
+        st.error(f"Error cargando tráfico (remoto + local): {e}")
         return pd.DataFrame()
 
 
@@ -75,9 +98,7 @@ def load_traffic():
 st.sidebar.title("Filtros")
 show_traf = st.sidebar.checkbox("Mostrar tráfico", True)
 show_bici = st.sidebar.checkbox("Mostrar Valenbisi", True)
-
 search_street = st.sidebar.text_input("Buscar calle (opcional)", "")
-
 if st.sidebar.button("🔄  Actualizar datos"):
     st.rerun()
 
@@ -124,20 +145,18 @@ color_map = {
     2: [255,  0,   0,  80],   # rojo
     3: [0,    0,   0,  80],   # negro
 }
-
 if not df_traf.empty and "estado" in df_traf.columns:
     df_traf["fill_color"] = df_traf["estado"].apply(
         lambda s: color_map.get(s, [200, 200, 200, 80])
     )
 else:
-    st.error("❌ No se pudieron asignar colores porque la columna 'estado' no existe o los datos de tráfico están vacíos.")
+    st.error("❌ No se pudieron asignar colores: 'estado' ausente o datos vacíos.")
 
 
 # ─────────────────────────────────────────────────────────────────
 # 6 · Construcción de capas y despliegue del mapa
 # ─────────────────────────────────────────────────────────────────
 layers = []
-
 if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -147,7 +166,6 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         get_radius=40,
         pickable=True,
     ))
-
 if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
@@ -173,7 +191,6 @@ else:
 # ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_logreg_model():
-    # Leer CSV con nombres y omitir la primera línea de cabecera
     try:
         df_hist = pd.read_csv(
             "hist_traffic.csv",
@@ -184,9 +201,7 @@ def get_logreg_model():
         st.warning("⚠️ No encontré hist_traffic.csv.")
         return None, None, None
 
-    # Convertir timestamp a datetime
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
-
     if len(df_hist) < 100:
         st.warning("⚠️ Histórico insuficiente para entrenar ML.")
         return None, None, None
@@ -216,10 +231,10 @@ if show_traf and modelo and not df_traf.empty and "estado" in df_traf.columns:
     st.write(f"- **Accuracy:** {acc:.2f}")
     st.write(f"- **ROC-AUC:**  {roc:.2f}")
     st.write(f"- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
-
-elif show_traf:
-    st.markdown("---")
-    st.warning("⚠️ Predicción ML no disponible.")
+else:
+    if show_traf:
+        st.markdown("---")
+        st.warning("⚠️ Predicción ML no disponible.")
 
 
 # ─────────────────────────────────────────────────────────────────
