@@ -15,12 +15,9 @@ st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_valenbisi():
-    # 1a) CSV local
+    # 1a) CSV local opcional
     try:
         df = pd.read_csv("valenbisi.csv")
-        # Si vienen separados lat y lon en dos columnas distintas,
-        # renómbralas aquí (ajusta según tus nombres reales):
-        # df.rename(columns={"latitude":"lat","longitude":"lon"}, inplace=True)
         if not df.empty:
             return df
     except FileNotFoundError:
@@ -53,12 +50,9 @@ def load_valenbisi():
 
 @st.cache_data(ttl=180)
 def load_traffic():
-    # 1a) CSV local
+    # 1a) CSV local: usamos tu trafico_historico.csv
     try:
-        df = pd.read_csv("trafico.csv")
-        # Renombra columnas de posición si es necesario:
-        # df.rename(columns={"latitude":"latitud","longitude":"longitud"}, inplace=True)
-        # Asegúrate de que "estado" está en entero:
+        df = pd.read_csv("trafico_historico.csv")
         if "estado" in df.columns:
             df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
         if not df.empty:
@@ -198,7 +192,7 @@ else:
 def get_logreg_model():
     try:
         df_hist = pd.read_csv(
-            "trafico_historico.csv",
+            "trafico_historico.csv",      # <— usa el mismo CSV que carga la capa de tráfico
             names=["timestamp","estado"],
             header=0
         )
