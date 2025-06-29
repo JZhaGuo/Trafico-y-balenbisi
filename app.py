@@ -28,35 +28,52 @@ def detect_column(df: pd.DataFrame, keywords):
 # 1 · Carga de datos con caché: lee CSV remoto y normaliza
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
+@st.cache_data(ttl=180)
 def load_traffic():
+    # URL de descarga directa del CSV
     csv_url = (
-        "https://valencia.opendatasoft.com/api/v2/catalog/datasets/"
-        "estat-transit-temps-real-estado-trafico-tiempo-real/exports/csv?"
-        "format=csv&rows=1000"
+        "https://valencia.opendatasoft.com/explore/dataset/"
+        "estat-transit-temps-real-estado-trafico-tiempo-real/"
+        "download/?format=csv&rows=1000"
     )
     try:
         df = pd.read_csv(csv_url)
-        df = normalize_columns(df)
-        
-        # Renombrar columnas clave
-        state_col = detect_column(df, ["estado"])
-        denom_col = detect_column(df, ["denominacion", "denominació", "name"])
-        lat_col   = detect_column(df, ["geo_point_2d_lat", "latitud", "latitude", "lat"])
-        lon_col   = detect_column(df, ["geo_point_2d_lon", "longitud", "longitude", "lon"])
-        
-        if not all([state_col, denom_col, lat_col, lon_col]):
-            raise KeyError(f"Columnas faltantes: estado={state_col}, denominacion={denom_col}, "
-                           f"lat={lat_col}, lon={lon_col}")
-        
-        df = df.rename(columns={
-            state_col: "estado",
-            denom_col: "denominacion",
-            lat_col:   "latitud",
-            lon_col:   "longitud"
-        })
-        
+        # Normalizar nombres
+        df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+
+        # Buscamos la columna con el par [lat, lon]
+        geo2 = next((c for c in df.columns if "geo_point_2d" in c), None)
+        if geo2 is None:
+            raise KeyError("No encontré columna geo_point_2d")
+
+        # Extraer latitud y longitud
+        # Puede llegar como "[39.47, -0.37]" o "39.47,-0.37"
+        def parse_lat(x):
+            try:
+                s = str(x).strip("[] ")
+                return float(s.split(",")[0])
+            except:
+                return None
+        def parse_lon(x):
+            try:
+                s = str(x).strip("[] ")
+                return float(s.split(",")[1])
+            except:
+                return None
+
+        df["latitud"]  = df[geo2].apply(parse_lat)
+        df["longitud"] = df[geo2].apply(parse_lon)
+
+        # Columna estado y denominación
+        if "estado" not in df.columns or "denominacion" not in df.columns:
+            raise KeyError("Faltan 'estado' o 'denominacion'")
         df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
+
+        # Filtramos filas sin coordenadas
+        df = df.dropna(subset=["latitud", "longitud"])
+
         return df
+
     except Exception as e:
         st.error(f"Error cargando tráfico CSV: {e}")
         return pd.DataFrame()
