@@ -1,5 +1,3 @@
-Esto es la app.py:
-
 import pandas as pd
 import requests
 import pydeck as pdk
@@ -126,9 +124,13 @@ color_map = {
     2: [255,  0,   0,  80],   # rojo
     3: [0,    0,   0,  80],   # negro
 }
-df_traf["fill_color"] = df_traf["estado"].apply(
-    lambda s: color_map.get(s, [200,200,200,80])
-)
+
+if not df_traf.empty and "estado" in df_traf.columns:
+    df_traf["fill_color"] = df_traf["estado"].apply(
+        lambda s: color_map.get(s, [200, 200, 200, 80])
+    )
+else:
+    st.error("❌ No se pudieron asignar colores porque la columna 'estado' no existe o los datos de tráfico están vacíos.")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -199,7 +201,7 @@ def get_logreg_model():
 
 modelo, acc, roc = get_logreg_model()
 
-if show_traf and modelo and not df_traf.empty:
+if show_traf and modelo and not df_traf.empty and "estado" in df_traf.columns:
     estado_actual = int(df_traf["estado"].mode()[0])
     ahora = datetime.now(timezone.utc)
     X_act = pd.DataFrame({
