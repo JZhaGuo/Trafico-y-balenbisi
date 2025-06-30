@@ -1,3 +1,5 @@
+Esto es la app.py:
+
 import pandas as pd
 import requests
 import pydeck as pdk
@@ -10,29 +12,15 @@ st.set_page_config(page_title="Tráfico y Valenbisi", layout="wide")
 
 # ────────────────────────────────────────────────────────────
 # 1 · Carga de datos con caché
-#    Primero intenta CSV local; si no existe o está vacío,
-#    intenta la API remota (JSON) como fallback.
 # ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_valenbisi():
-    # 1a) CSV local opcional
+    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+    params = {
+        "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
+        "rows": 500
+    }
     try:
-        df = pd.read_csv("valenbisi.csv")
-        # Si vienen separados lat y lon en dos columnas distintas,
-        # renómbralas aquí (ajusta según tus nombres reales):
-        # df.rename(columns={"latitude":"lat","longitude":"lon"}, inplace=True)
-        if not df.empty:
-            return df
-    except FileNotFoundError:
-        pass
-
-    # 1b) Fallback API remota (JSON)
-    try:
-        url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-        params = {
-            "dataset": "valenbisi-disponibilitat-valenbisi-dsiponibilidad",
-            "rows": 500
-        }
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         recs = r.json().get("records", [])
@@ -47,29 +35,18 @@ def load_valenbisi():
             rows.append(f)
         return pd.DataFrame(rows)
     except Exception as e:
-        st.error(f"Error cargando Valenbisi (JSON): {e}")
+        st.error(f"Error cargando Valenbisi: {e}")
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=180)
 def load_traffic():
-    # 1a) CSV local: usamos tu trafico_historico.csv
+    url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
+    params = {
+        "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
+        "rows": 1000
+    }
     try:
-        df = pd.read_csv("trafico_historico.csv")
-        if "estado" in df.columns:
-            df["estado"] = pd.to_numeric(df["estado"], errors="coerce").astype("Int64")
-        if not df.empty:
-            return df
-    except FileNotFoundError:
-        pass
-
-    # 1b) Fallback API remota (JSON)
-    try:
-        url = "https://valencia.opendatasoft.com/api/records/1.0/search/"
-        params = {
-            "dataset": "estat-transit-temps-real-estado-trafico-tiempo-real",
-            "rows": 1000
-        }
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         recs = r.json().get("records", [])
@@ -90,7 +67,7 @@ def load_traffic():
             rows.append(f)
         return pd.DataFrame(rows)
     except Exception as e:
-        st.error(f"Error cargando tráfico (JSON): {e}")
+        st.error(f"Error cargando tráfico: {e}")
         return pd.DataFrame()
 
 
@@ -144,17 +121,14 @@ if show_traf and search_street and "denominacion" in df_traf.columns:
 # 5 · Colorear tráfico en tiempo real
 # ─────────────────────────────────────────────────────────────────
 color_map = {
-    0: [0, 255,   0,  80],
-    1: [255,165,   0,  80],
-    2: [255,  0,   0,  80],
-    3: [0,    0,   0,  80],
+    0: [0, 255,   0,  80],   # verde
+    1: [255,165,   0,  80],   # naranja
+    2: [255,  0,   0,  80],   # rojo
+    3: [0,    0,   0,  80],   # negro
 }
-if not df_traf.empty and "estado" in df_traf.columns:
-    df_traf["fill_color"] = df_traf["estado"].apply(
-        lambda s: color_map.get(int(s), [200, 200, 200, 80])
-    )
-else:
-    st.error("❌ No se pudieron asignar colores: 'estado' ausente o datos vacíos.")
+df_traf["fill_color"] = df_traf["estado"].apply(
+    lambda s: color_map.get(s, [200,200,200,80])
+)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -197,16 +171,18 @@ else:
 # ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_logreg_model():
+    # Leer CSV con nombres y omitir la primera línea de cabecera
     try:
         df_hist = pd.read_csv(
-            "trafico_historico.csv",      # <— usa el mismo CSV que carga la capa de tráfico
+            "hist_traffic.csv",
             names=["timestamp","estado"],
             header=0
         )
     except FileNotFoundError:
-        st.warning("⚠️ No encontré trafico_historico.csv.")
+        st.warning("⚠️ No encontré hist_traffic.csv.")
         return None, None, None
 
+    # Convertir timestamp a datetime
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
 
     if len(df_hist) < 100:
@@ -223,7 +199,7 @@ def get_logreg_model():
 
 modelo, acc, roc = get_logreg_model()
 
-if show_traf and modelo and not df_traf.empty and "estado" in df_traf.columns:
+if show_traf and modelo and not df_traf.empty:
     estado_actual = int(df_traf["estado"].mode()[0])
     ahora = datetime.now(timezone.utc)
     X_act = pd.DataFrame({
@@ -238,6 +214,7 @@ if show_traf and modelo and not df_traf.empty and "estado" in df_traf.columns:
     st.write(f"- **Accuracy:** {acc:.2f}")
     st.write(f"- **ROC-AUC:**  {roc:.2f}")
     st.write(f"- **P(congestión ≥ 2):** {prob_ml*100:.1f}%")
+
 elif show_traf:
     st.markdown("---")
     st.warning("⚠️ Predicción ML no disponible.")
