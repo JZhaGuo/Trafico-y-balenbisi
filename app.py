@@ -99,7 +99,7 @@ st.sidebar.markdown(
 # 3 · Carga de datos
 # ─────────────────────────────────────────────────────────────────
 df_traf = load_traffic()
-df_bici = load_valenbisi()
+df_bici  = load_valenbisi()
 
 if show_traf and df_traf.empty:
     st.error("❌ No se pudieron cargar los datos de tráfico.")
@@ -138,7 +138,7 @@ else:
 # ─────────────────────────────────────────────────────────────────
 layers = []
 
-if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issubset(df_traf.columns):
+if show_traf and not df_traf.empty and {"latitud", "longitud", "fill_color"}.issubset(df_traf.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_traf,
@@ -148,7 +148,7 @@ if show_traf and not df_traf.empty and {"latitud","longitud","fill_color"}.issub
         pickable=True,
     ))
 
-if show_bici and not df_bici.empty and {"lat","lon"}.issubset(df_bici.columns):
+if show_bici and not df_bici.empty and {"lat", "lon"}.issubset(df_bici.columns):
     layers.append(pdk.Layer(
         "ScatterplotLayer",
         data=df_bici,
@@ -173,18 +173,16 @@ else:
 # ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_logreg_model():
-    # Leer CSV con nombres y omitir la primera línea de cabecera
     try:
         df_hist = pd.read_csv(
-            "hist_traffic.csv",
-            names=["timestamp","estado"],
+            "trafico_historico.csv",  # ← usa el nombre real de tu CSV
+            names=["timestamp", "estado"],
             header=0
         )
     except FileNotFoundError:
-        st.warning("⚠️ No encontré hist_traffic.csv.")
+        st.warning("⚠️ No encontré trafico_historico.csv.")
         return None, None, None
 
-    # Convertir timestamp a datetime
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], utc=True)
 
     if len(df_hist) < 100:
